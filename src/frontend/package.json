@@ -14,16 +14,16 @@
         "test:open": "cypress open --config-file=cypress_dev.js"
     },
     "dependencies": {
-        "@codemirror/lang-yaml": "^6.1.2",
+        "@codemirror/lang-yaml": "^6.1.3",
         "@codemirror/theme-one-dark": "^6.1.3",
-        "@codemirror/view": "^6.39.11",
+        "@codemirror/view": "^6.41.0",
         "@kyvg/vue3-notification": "^3.4.2",
-        "@vitejs/plugin-vue": "^6.0.3",
-        "axios": "^1.13.2",
-        "beercss": "^3.13.3",
+        "@vitejs/plugin-vue": "^6.0.6",
+        "axios": "^1.15.0",
+        "beercss": "^4.0.20",
         "codemirror": "^6.0.2",
-        "cypress": "^15.9.0",
-        "eslint": "^9.39.2",
+        "cypress": "^15.13.1",
+        "eslint": "^10.2.0",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-vue": "^10.7.0",
         "javascript-time-ago": "^2.5.12",
@@ -32,10 +32,10 @@
         "minimist": "^1.2.8",
         "mitt": "^3.0.1",
         "prettier": "^3.8.1",
-        "vite": "^7.3.1",
+        "vite": "^8.0.8",
         "vue": "^3.5.27",
         "vue-codemirror": "^6.1.1",
-        "vue-router": "^4.6.4",
+        "vue-router": "^5.0.4",
         "vuex": "^4.1.0"
     }
 }
