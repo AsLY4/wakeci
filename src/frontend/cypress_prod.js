@@ -6,6 +6,10 @@ const port = process.env.WAKECI_E2E_PORT || 8081;
 
 export default defineConfig({
     video: false,
+    // Several specs poll for a build to reach "running"/"pending" right
+    // after triggering it; the default 4000ms is tight enough to flake under
+    // system load even though the app itself is behaving correctly.
+    defaultCommandTimeout: 10000,
     e2e: {
         baseUrl: `http://localhost:${port}`,
         supportFile: "cypress/support/index.js",

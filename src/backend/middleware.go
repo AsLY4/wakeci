@@ -112,11 +112,16 @@ func SecurityMi(next http.Handler) http.Handler {
 }
 
 // StorageSecurityMi is a middleware which adds security headers specifically for storage endpoints
-// It is more relaxed than the normal one, as we want to be able to preview html pages
+// It is more relaxed than the normal one, as we want to be able to preview html pages.
+// Scripts in a previewed page may still run (self-contained reports commonly
+// embed inline JS/CSS for interactivity), but connect-src/form-action are
+// locked down so a build artifact - which can contain task-influenced
+// content - can never use that execution context to call back into wakeci's
+// own authenticated API or submit a form, even though it's served same-site.
 func StorageSecurityMi(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("referrer-policy", "no-referrer")
-		w.Header().Set("content-security-policy", "frame-ancestors 'self'")
+		w.Header().Set("content-security-policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'none'; frame-ancestors 'self'")
 		w.Header().Set("x-content-type-options", "nosniff")
 		if Config.Hostname != "" {
 			w.Header().Set("strict-transport-security", "max-age=15768000;includeSubdomains")
