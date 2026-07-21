@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -23,9 +23,9 @@ import (
 // @Failure      500      {string}   string
 // @Router       /feed/ [get]
 func HandleFeedView(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	const pageSize = 15
@@ -40,10 +40,10 @@ func HandleFeedView(w http.ResponseWriter, r *http.Request) {
 	offset, err := strconv.Atoi(offsetS)
 	if err != nil {
 		errMsg := fmt.Sprintf("Invalid offset: %q", offsetS)
-		logger.Println(errMsg)
+		logger.Warn("invalid offset", "offset", offsetS)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(errMsg))
+		writeBody(logger, w, []byte(errMsg))
 		return
 	}
 
@@ -76,7 +76,7 @@ func HandleFeedView(w http.ResponseWriter, r *http.Request) {
 			var msg BuildUpdateData
 			err := json.Unmarshal(v, &msg)
 			if err != nil {
-				logger.Println(err)
+				logger.Error("unmarshal build history entry", "err", err)
 			} else {
 				switch msg.Status {
 				case StatusPending, StatusRunning:
@@ -84,9 +84,10 @@ func HandleFeedView(w http.ResponseWriter, r *http.Request) {
 						msg.Status = StatusAborted
 						updatedB, err := json.Marshal(msg)
 						if err != nil {
-							logger.Println(err)
+							logger.Error("marshal build history entry", "build", msg.ID, "err", err)
+						} else if err := b.Put(Itob(msg.ID), updatedB); err != nil {
+							logger.Error("save build history entry", "build", msg.ID, "err", err)
 						}
-						b.Put(Itob(msg.ID), updatedB)
 					}
 				}
 				if filter != nil {
@@ -108,20 +109,20 @@ func HandleFeedView(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		logger.Println(err)
+		logger.Error("build feed query", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	payloadB, err := json.Marshal(payload)
 	if err != nil {
-		logger.Println(err)
+		logger.Error("marshal feed payload", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(payloadB)
+	writeBody(logger, w, payloadB)
 }

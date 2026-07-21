@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,12 +16,12 @@ const BuildCleanupPeriod = 15 * time.Minute
 
 // Cleaner respresents a struct to schdeule old build cleanups
 type Cleaner struct {
-	Logger *log.Logger
+	Logger *slog.Logger
 }
 
 // Clean removes old builds from filesystem and database
 func (cl *Cleaner) Clean() {
-	cl.Logger.Println("Looking for builds to clean up...")
+	cl.Logger.Debug("looking for builds to clean up")
 	started := time.Now()
 	err := DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(GlobalBucket))
@@ -46,25 +46,25 @@ func (cl *Cleaner) Clean() {
 			if id > binary.BigEndian.Uint64(fromB) {
 				continue
 			}
-			cl.Logger.Printf("Cleaning up build %d...\n", id)
+			cl.Logger.Info("cleaning up build", "build", id)
 			err = os.RemoveAll(filepath.Join(Config.WorkDir, "workspace/", fmt.Sprintf("%d", id)))
 			if err != nil {
-				cl.Logger.Println(err)
+				cl.Logger.Error("remove workspace", "build", id, "err", err)
 			}
 			err = os.RemoveAll(filepath.Join(Config.WorkDir, "wakespace/", fmt.Sprintf("%d", id)))
 			if err != nil {
-				cl.Logger.Println(err)
+				cl.Logger.Error("remove wakespace", "build", id, "err", err)
 			}
 			err = hb.Delete(key)
 			if err != nil {
-				cl.Logger.Println(err)
+				cl.Logger.Error("delete build history", "build", id, "err", err)
 			}
 		}
 		return nil
 	})
-	cl.Logger.Printf("Took %s\n", time.Since(started))
+	cl.Logger.Debug("cleanup finished", "took", time.Since(started))
 	if err != nil {
-		cl.Logger.Println(err)
+		cl.Logger.Error("clean up old builds", "err", err)
 		return
 	}
 }
@@ -73,7 +73,7 @@ func (cl *Cleaner) Clean() {
 func CleanupOldBuilds(d time.Duration) {
 	ticker := time.NewTicker(d)
 	c := Cleaner{
-		Logger: log.New(os.Stdout, "[cleaner] ", log.Lmicroseconds|log.Lshortfile),
+		Logger: L.With("component", "cleaner"),
 	}
 	go func() {
 		for range ticker.C {
@@ -85,7 +85,7 @@ func CleanupOldBuilds(d time.Duration) {
 // CleanupJobsBucket verifies that items in jobs bucket have job files in
 // config dir
 func CleanupJobsBucket() {
-	DB.Update(func(tx *bolt.Tx) error {
+	err := DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(JobsBucket)
 		c := b.Cursor()
 		var toRemove [][]byte
@@ -94,16 +94,19 @@ func CleanupJobsBucket() {
 			path := Config.JobDir + name + Config.jobsExt
 			_, err := os.Stat(path)
 			if err != nil {
-				Logger.Printf("Removing %s from database, reason: %s\n", name, err.Error())
+				L.Info("removing job from database", "job", name, "err", err)
 				toRemove = append(toRemove, key)
 			}
 		}
 		for _, rk := range toRemove {
 			err := b.DeleteBucket(rk)
 			if err != nil {
-				Logger.Println(err)
+				L.Error("delete job bucket", "job", string(rk), "err", err)
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		L.Error("clean up jobs bucket", "err", err)
+	}
 }

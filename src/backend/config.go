@@ -34,7 +34,7 @@ func CreateWakeConfig(path string) (*WakeConfig, error) {
 
 	// Verify that config file exists
 	if _, err := os.Stat(path); err == nil {
-		Logger.Printf("Using configuration file: %s\n", path)
+		L.Info("using configuration file", "path", path)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -44,7 +44,7 @@ func CreateWakeConfig(path string) (*WakeConfig, error) {
 			return nil, err
 		}
 	} else if os.IsNotExist(err) {
-		Logger.Printf("Using default configuration: %v\n", err)
+		L.Info("configuration file not found, using defaults", "path", path)
 	} else {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func CreateWakeConfig(path string) (*WakeConfig, error) {
 
 	// Load secrets
 	if config.SecretsFile != "" {
-		Logger.Printf("Loading secrets from: %s\n", config.SecretsFile)
+		L.Info("loading secrets", "file", config.SecretsFile)
 		data, err := os.ReadFile(config.SecretsFile)
 		if err != nil {
 			return nil, err
@@ -89,6 +89,15 @@ func CreateWakeConfig(path string) (*WakeConfig, error) {
 	if !filepath.IsAbs(config.JobDir) {
 		config.JobDir = filepath.Join(cwd, config.JobDir) + "/"
 	}
-	Logger.Printf("Current config: %+v\n", config)
+	// Log fields individually rather than the whole struct: config.secrets
+	// holds decrypted secret values and must never be logged.
+	L.Debug("current config",
+		"port", config.Port,
+		"hostname", config.Hostname,
+		"workdir", config.WorkDir,
+		"jobdir", config.JobDir,
+		"secretsfile", config.SecretsFile,
+		"timezone", config.Timezone,
+	)
 	return &config, nil
 }

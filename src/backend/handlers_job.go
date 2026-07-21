@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -25,26 +25,26 @@ import (
 // @Failure      400      {string}   string
 // @Router       /job/{name}/run [post]
 func HandleRunJob(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	err := r.ParseForm()
 	if err != nil {
-		logger.Println(err)
+		logger.Error("parse form", "err", err)
 	}
 
 	build, err := RunJob(chi.URLParam(r, "name"), r.Form)
 	if err != nil {
-		logger.Println(err)
+		logger.Error("run job", "job", chi.URLParam(r, "name"), "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(strconv.Itoa(build.ID)))
+	writeBody(logger, w, []byte(strconv.Itoa(build.ID)))
 }
 
 // HandleJobGet returns content of a specific job file
@@ -55,18 +55,18 @@ func HandleRunJob(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {string}   string
 // @Router       /job/{name}/ [get]
 func HandleJobGet(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	path := Config.JobDir + chi.URLParam(r, "name") + Config.jobsExt
 	data, err := os.ReadFile(path)
 	if err != nil {
-		logger.Println(err)
+		logger.Error("read job file", "path", path, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	jd := JobData{
@@ -74,14 +74,14 @@ func HandleJobGet(w http.ResponseWriter, r *http.Request) {
 	}
 	payloadB, err := json.Marshal(jd)
 	if err != nil {
-		logger.Println(err)
+		logger.Error("marshal job data", "path", path, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(payloadB)
+	writeBody(logger, w, payloadB)
 }
 
 // HandleJobPost updates content of a specific job
@@ -94,9 +94,9 @@ func HandleJobGet(w http.ResponseWriter, r *http.Request) {
 // @Failure      400      {string}   string
 // @Router       /job/{name}/ [post]
 func HandleJobPost(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	content := r.FormValue("fileContent")
@@ -107,20 +107,20 @@ func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 	job := Job{}
 	err := yaml.Unmarshal(contentB, &job)
 	if err != nil {
-		logger.Println(err)
+		logger.Warn("invalid job yaml", "job", chi.URLParam(r, "name"), "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 
 	// Verify provided interval
 	err = job.verifyInterval()
 	if err != nil {
-		logger.Println(err)
+		logger.Warn("invalid job interval", "job", chi.URLParam(r, "name"), "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 
@@ -130,13 +130,13 @@ func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 
 	err = os.WriteFile(path, contentB, 0644)
 	if err != nil {
-		logger.Println(err)
+		logger.Error("write job file", "path", path, "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
-	logger.Printf("Job %s was updated\n", chi.URLParam(r, "name"))
+	logger.Info("job updated", "job", chi.URLParam(r, "name"))
 }
 
 // HandleDeleteJob deletes the job
@@ -149,9 +149,9 @@ func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {string}    string
 // @Router       /job/{name} [delete]
 func HandleDeleteJob(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	name := chi.URLParam(r, "name")
@@ -159,25 +159,25 @@ func HandleDeleteJob(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := os.Stat(path); err == nil {
 		err = os.Remove(path)
-		logger.Printf("Job %s was deleted\n", name)
+		logger.Info("job deleted", "job", name)
 		CleanupJobsBucket()
 		if err != nil {
-			logger.Println(err)
+			logger.Error("remove job file", "path", path, "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte(err.Error()))
+			writeBody(logger, w, []byte(err.Error()))
 			return
 		}
 		return
 	} else if os.IsNotExist(err) {
-		logger.Println(err)
+		logger.Warn("delete missing job", "job", name, "err", err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	} else {
-		logger.Println(err)
+		logger.Error("stat job file", "path", path, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 }
@@ -191,9 +191,9 @@ func HandleDeleteJob(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {string}    string
 // @Router       /job/{name}/set_active [post]
 func HandleJobSetActive(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	name := chi.URLParam(r, "name")
@@ -205,10 +205,10 @@ func HandleJobSetActive(w http.ResponseWriter, r *http.Request) {
 		break
 	default:
 		m := fmt.Sprintf("Invalid active flag for a job: %s\n", activeStatus)
-		logger.Printf("Invalid active flag for a job: %s\n", activeStatus)
+		logger.Warn("invalid active flag for a job", "job", name, "active", activeStatus)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(m))
+		writeBody(logger, w, []byte(m))
 		return
 	}
 
@@ -220,17 +220,17 @@ func HandleJobSetActive(w http.ResponseWriter, r *http.Request) {
 		}
 		err := jb.Put([]byte("active"), []byte(activeStatus))
 		if err == nil {
-			logger.Printf("Change active state of job %s to %s\n", name, activeStatus)
+			logger.Info("job active state changed", "job", name, "active", activeStatus)
 		}
 		return err
 	})
 	if err != nil {
-		logger.Println(err)
+		logger.Error("set job active state", "job", name, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(activeStatus))
+	writeBody(logger, w, []byte(activeStatus))
 }

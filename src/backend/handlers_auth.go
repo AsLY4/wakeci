@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -17,9 +17,9 @@ func HandleIsLoggedIn(w http.ResponseWriter, r *http.Request) {
 
 // HandleLogIn verifies password and logs the user in
 func HandleLogIn(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	// Create and store session token
@@ -33,23 +33,24 @@ func HandleLogIn(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		logger.Println(err)
+		logger.Error("read password hash", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	err = bcrypt.CompareHashAndPassword(hashedPassword, []byte(password))
 	if err != nil {
-		logger.Println(err, password)
+		// Never log the submitted password.
+		logger.Warn("login failed", "err", err)
 		w.WriteHeader(http.StatusForbidden)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("Incorrect password"))
+		writeBody(logger, w, []byte("Incorrect password"))
 		return
 	}
 
 	c, err := GlobalSessionStorage.New()
 	if err != nil {
-		logger.Println(err)
+		logger.Error("create session", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -60,16 +61,16 @@ func HandleLogIn(w http.ResponseWriter, r *http.Request) {
 
 // HandleLogOut logs the user out
 func HandleLogOut(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	sessionToken, err := r.Cookie("session")
 	if err == nil {
 		err = GlobalSessionStorage.Delete(sessionToken.Value)
 		if err != nil {
-			logger.Println(err)
+			logger.Error("delete session", "err", err)
 		}
 	}
 

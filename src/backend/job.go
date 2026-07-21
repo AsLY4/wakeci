@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -58,7 +59,7 @@ func (j *Job) AddToCron() error {
 	}
 
 	_, err := GlobalCron.AddJob(intervalStr, j)
-	Logger.Printf("Add job %s to cron with interval %s\n", j.Name, intervalStr)
+	L.Info("added job to cron", "job", j.Name, "interval", intervalStr)
 	return err
 }
 
@@ -67,10 +68,10 @@ func (j *Job) Run() {
 	var params url.Values
 	build, err := RunJob(j.Name, params)
 	if err != nil {
-		Logger.Printf("Unable to schedule a build via cron for job %s: %s\n", j.Name, err.Error())
+		L.Error("schedule build via cron", "job", j.Name, "err", err)
 		return
 	}
-	build.Logger.Printf("The build for job %s is scheduled via cron\n", j.Name)
+	build.Logger.Info("build scheduled via cron", "job", j.Name)
 }
 
 // Used to verify interval before saving after editing
@@ -191,7 +192,7 @@ func CreateJobFromFile(path string) (*Job, error) {
 
 	job.Name = GetJobNameFromPath(path)
 
-	Logger.Printf("Read job from file %s: %s, tasks %d\n", path, job.Name, len(job.Tasks))
+	L.Debug("read job from file", "path", path, "job", job.Name, "tasks", len(job.Tasks))
 	return &job, nil
 }
 
@@ -203,20 +204,24 @@ func GetJobNameFromPath(path string) string {
 }
 
 // ScanAllJobs scans for all available jobs and saves them in database
-func ScanAllJobs() error {
+func ScanAllJobs() {
 	// Clean Cron entries
-	Logger.Println("Cleaning all cron entries...")
+	L.Debug("cleaning all cron entries")
 	for _, entry := range GlobalCron.Entries() {
 		GlobalCron.Remove(entry.ID)
 	}
-	files, _ := filepath.Glob(Config.JobDir + "*" + Config.jobsExt)
+	pattern := Config.JobDir + "*" + Config.jobsExt
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		L.Error("glob job files", "pattern", pattern, "err", err)
+		return
+	}
 	for _, f := range files {
 		err := RegisterJob(f)
 		if err != nil {
-			Logger.Println(err)
+			L.Error("register job", "file", f, "err", err)
 		}
 	}
-	return nil
 }
 
 // RegisterJob registers a job in database and cron
@@ -263,7 +268,7 @@ func RegisterJob(filename string) error {
 	}
 	err = job.AddToCron()
 	if err == nil {
-		Logger.Println("Registered job", job.Name)
+		L.Info("registered job", "job", job.Name)
 	}
 	return err
 }
@@ -273,7 +278,7 @@ func UnregisterJob(filename string) {
 	jobName := GetJobNameFromPath(filename)
 	RemoveJobFromCron(jobName)
 	CleanupJobsBucket()
-	Logger.Println("Unregistered job", jobName)
+	L.Info("unregistered job", "job", jobName)
 }
 
 func RemoveJobFromCron(name string) {
@@ -281,7 +286,7 @@ func RemoveJobFromCron(name string) {
 		entryJob, ok := entry.Job.(*Job)
 		if ok && entryJob.Name == name {
 			GlobalCron.Remove(entry.ID)
-			Logger.Printf("Removing job %s from cron\n", name)
+			L.Debug("removing job from cron", "job", name)
 			break
 		}
 	}
@@ -326,7 +331,7 @@ func RunJob(name string, params url.Values) (*Build, error) {
 			value := params.Get(pkey)
 			if value != "" {
 				build.Params[idx][pkey] = value
-				build.Logger.Printf("Updating key %s to %s", pkey, value)
+				build.Logger.Debug("updating param", "key", pkey, "value", value)
 			}
 		}
 	}
@@ -339,50 +344,52 @@ func RunJob(name string, params url.Values) (*Build, error) {
 }
 
 // InitJobWatcher initializes watcher which uses fsnotify to watch for changes
-// in the folder with job files
+// in the folder with job files. It is always run in its own goroutine, so on
+// setup failure it logs and returns instead of exiting the whole process.
 func InitJobWatcher(jobDir string, jobsExt string) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		Logger.Fatal(err)
+		L.Error("create job file watcher", "err", err)
+		return
 	}
-	defer watcher.Close()
-
-	go func() {
-		for {
-			select {
-			// Read from Errors.
-			case err, ok := <-watcher.Errors:
-				if !ok { // Channel was closed (i.e. Watcher.Close() was called).
-					return
-				}
-				Logger.Printf("ERROR: %s\n", err)
-			// Read from Events.
-			case event, ok := <-watcher.Events:
-				if !ok { // Channel was closed (i.e. Watcher.Close() was called).
-					return
-				}
-				if strings.HasSuffix(event.Name, jobsExt) {
-					if event.Has(fsnotify.Create | fsnotify.Write) {
-						Logger.Println("jobs dir watcher:", event.Op.String(), event.Name)
-						err := RegisterJob(event.Name)
-						if err != nil {
-							Logger.Println(err)
-						}
-					}
-					if event.Has(fsnotify.Remove) {
-						Logger.Println("jobs dir watcher:", event.Op.String(), event.Name)
-						UnregisterJob(event.Name)
-					}
-				}
-			}
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			L.Log(context.Background(), LevelTrace, "close job file watcher", "err", err)
 		}
 	}()
 
 	err = watcher.Add(jobDir)
 	if err != nil {
-		Logger.Fatal(err)
+		L.Error("watch job dir", "dir", jobDir, "err", err)
+		return
 	}
 
-	// Block forever
-	<-make(chan struct{})
+	for {
+		select {
+		// Read from Errors.
+		case err, ok := <-watcher.Errors:
+			if !ok { // Channel was closed (i.e. Watcher.Close() was called).
+				return
+			}
+			L.Error("job file watcher", "err", err)
+		// Read from Events.
+		case event, ok := <-watcher.Events:
+			if !ok { // Channel was closed (i.e. Watcher.Close() was called).
+				return
+			}
+			if strings.HasSuffix(event.Name, jobsExt) {
+				if event.Has(fsnotify.Create | fsnotify.Write) {
+					L.Info("jobs dir watcher", "op", event.Op.String(), "file", event.Name)
+					err := RegisterJob(event.Name)
+					if err != nil {
+						L.Error("register job", "file", event.Name, "err", err)
+					}
+				}
+				if event.Has(fsnotify.Remove) {
+					L.Info("jobs dir watcher", "op", event.Op.String(), "file", event.Name)
+					UnregisterJob(event.Name)
+				}
+			}
+		}
+	}
 }

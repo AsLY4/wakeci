@@ -56,7 +56,7 @@ func CompactDB() error {
 	currentDBFile := Config.WorkDir + "wakeci.db"
 	newDBFile := Config.WorkDir + ".compacted.wakeci.db"
 	oldDBFile := Config.WorkDir + "wakeci.db.backup"
-	Logger.Printf("Reclaiming unused space in database %s...\n", currentDBFile)
+	L.Warn("reclaiming unused space in database", "file", currentDBFile)
 	// Open current database
 	oldDB, err := bolt.Open(currentDBFile, 0644, nil)
 	if err != nil {
@@ -100,9 +100,8 @@ func CompactDB() error {
 	}
 
 	ratio := float64(currentStat.Size()) / float64(newStat.Size())
-	Logger.Printf(
-		"DB file size changed from %d to %d (%.2fx)\n",
-		currentStat.Size(), newStat.Size(), ratio,
+	L.Warn("db file size changed",
+		"before", currentStat.Size(), "after", newStat.Size(), "ratio", ratio,
 	)
 
 	// Create a backup copy of the current db

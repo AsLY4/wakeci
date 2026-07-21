@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"embed"
 	"flag"
-	"log"
 	"net/http"
 	"os"
 
@@ -17,8 +16,8 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// Logger is the main logger
-var Logger *log.Logger
+// TraceLogPath is where --trace writes its log, truncated on every start.
+const TraceLogPath = "/tmp/wakeci.log"
 
 // Version is the version of the application calculated with monova
 var Version string
@@ -47,26 +46,46 @@ var Assets embed.FS
 //go:embed docs/swagger.json
 var APIDocs embed.FS
 
-func initApp() {
-	Logger = log.New(os.Stdout, "", log.Lmicroseconds|log.Lshortfile)
-
-	configFlag := flag.String("config", "Wakefile.yaml", "Configuration file location")
+func initApp() func() {
+	configFlag := "Wakefile.yaml"
+	flag.StringVar(&configFlag, "config", "Wakefile.yaml", "Configuration file location")
+	flag.StringVar(&configFlag, "c", "Wakefile.yaml", "Configuration file location (shorthand)")
 	compactDBFlag := flag.Bool("compactdb", false, "Reclaim space in the database which is no longer used")
+	debug := false
+	flag.BoolVar(&debug, "debug", false, "Debug-level logging on stderr.")
+	flag.BoolVar(&debug, "d", false, "Debug-level logging on stderr (shorthand).")
+	trace := flag.Bool("trace", false, "Trace-level logs to "+TraceLogPath+" (truncated each run).")
 	flag.Parse()
 
+	level, tracePath := "", ""
+	switch {
+	case *trace:
+		level, tracePath = "trace", TraceLogPath
+	case debug:
+		level = "debug"
+	}
+	cleanup := initLogger(tracePath, level)
+
 	var err error
-	Config, err = CreateWakeConfig(*configFlag)
+	Config, err = CreateWakeConfig(configFlag)
 	if err != nil {
-		Logger.Fatal(err)
+		L.Error("load config", "err", err)
+		cleanup()
+		os.Exit(1)
 	}
 
 	if *compactDBFlag {
 		err = CompactDB()
 		if err != nil {
-			Logger.Fatal(err)
+			L.Error("compact db", "err", err)
+			cleanup()
+			os.Exit(1)
 		}
+		cleanup()
 		os.Exit(0)
 	}
+
+	return cleanup
 }
 
 // @title wakeci API documentation
@@ -74,18 +93,30 @@ func initApp() {
 
 // @BasePath /api
 func main() {
-	initApp()
+	cleanup := initApp()
+	defer cleanup()
+
+	fatal := func(msg string, err error) {
+		L.Error(msg, "err", err)
+		cleanup()
+		os.Exit(1)
+	}
+
 	var err error
 	err = os.MkdirAll(Config.WorkDir, os.ModePerm)
 	if err != nil {
-		Logger.Fatal(err)
+		fatal("create work dir", err)
 	}
 
 	DB, err = bolt.Open(Config.WorkDir+"wakeci.db", 0644, nil)
 	if err != nil {
-		Logger.Fatal(err)
+		fatal("open db", err)
 	}
-	defer DB.Close()
+	defer func() {
+		if err := DB.Close(); err != nil {
+			L.Error("close db", "err", err)
+		}
+	}()
 
 	// Bootstrap DB
 	err = DB.Update(func(tx *bolt.Tx) error {
@@ -100,7 +131,7 @@ func main() {
 		}
 		password := gb.Get([]byte("password"))
 		if password == nil {
-			Logger.Println("Creating default password...")
+			L.Info("creating default password")
 			passwordH, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
 			if err != nil {
 				return err
@@ -128,14 +159,14 @@ func main() {
 	})
 
 	if err != nil {
-		Logger.Fatal(err)
+		fatal("bootstrap db", err)
 	}
 
 	GlobalSessionStorage = CreateSessionStorage(SessionCleanupPeriod)
 
 	GlobalQueue, err = CreateQueue()
 	if err != nil {
-		Logger.Fatal(err)
+		fatal("create queue", err)
 	}
 
 	GlobalCron = cron.New()
@@ -143,7 +174,7 @@ func main() {
 
 	err = os.MkdirAll(Config.JobDir, os.ModePerm)
 	if err != nil {
-		Logger.Fatal(err)
+		fatal("create job dir", err)
 	}
 
 	go InitJobWatcher(Config.JobDir, Config.jobsExt)
@@ -222,19 +253,19 @@ func main() {
 
 	compress, err := httpcompression.DefaultAdapter()
 	if err != nil {
-		Logger.Fatal(err)
+		fatal("create compression adapter", err)
 	}
 
 	if Config.Port == "443" {
 		go func() {
-			Logger.Println("Listening on port 80...")
+			L.Warn("Listening on :80")
 			err := http.ListenAndServe(":80", certManager.HTTPHandler(nil))
 			if err != nil {
-				Logger.Fatal(err)
+				L.Error("port 80 redirect listener stopped", "err", err)
 			}
 		}()
 
-		Logger.Println("Listening on port 443...")
+		L.Warn("Listening on :443")
 		server := &http.Server{
 			Addr: ":443",
 			TLSConfig: &tls.Config{
@@ -256,13 +287,13 @@ func main() {
 
 		err = server.ListenAndServeTLS("", "")
 		if err != nil {
-			Logger.Fatal(err)
+			fatal("serve tls", err)
 		}
 	} else {
-		Logger.Printf("Listening on port %s...\n", Config.Port)
+		L.Warn("Listening on :" + Config.Port)
 		err := http.ListenAndServe(":"+Config.Port, compress(router))
 		if err != nil {
-			Logger.Fatal(err)
+			fatal("serve http", err)
 		}
 	}
 }

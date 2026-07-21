@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -22,9 +22,9 @@ import (
 // @Failure      500      {string}   string
 // @Router       /settings/ [post]
 func HandleSettingsPost(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	// Password
@@ -44,10 +44,10 @@ func HandleSettingsPost(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 		if err != nil {
-			logger.Println(err)
+			logger.Error("save password", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte(err.Error()))
+			writeBody(logger, w, []byte(err.Error()))
 			return
 		}
 	}
@@ -56,10 +56,10 @@ func HandleSettingsPost(w http.ResponseWriter, r *http.Request) {
 	cb := r.FormValue("concurrentBuilds")
 	cbInt, err := strconv.Atoi(cb)
 	if err != nil {
-		logger.Println(err)
+		logger.Warn("invalid concurrentBuilds value", "value", cb, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	GlobalQueue.SetConcurrency(cbInt)
@@ -68,10 +68,10 @@ func HandleSettingsPost(w http.ResponseWriter, r *http.Request) {
 	bhs := r.FormValue("buildHistorySize")
 	bhsInt, err := strconv.Atoi(bhs)
 	if err != nil {
-		logger.Println(err)
+		logger.Warn("invalid buildHistorySize value", "value", bhs, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	err = DB.Update(func(tx *bolt.Tx) error {
@@ -83,10 +83,10 @@ func HandleSettingsPost(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		logger.Println(err)
+		logger.Error("save buildHistorySize", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 }
@@ -99,9 +99,9 @@ func HandleSettingsPost(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {string}   string
 // @Router       /settings/ [get]
 func HandleSettingsGet(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 	var settings SettingsData
 
@@ -122,21 +122,21 @@ func HandleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		logger.Println(err)
+		logger.Error("get settings", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 
 	payloadB, err := json.Marshal(settings)
 	if err != nil {
-		logger.Println(err)
+		logger.Error("marshal settings", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(payloadB)
+	writeBody(logger, w, payloadB)
 }

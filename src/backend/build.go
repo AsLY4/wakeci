@@ -2,9 +2,10 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
@@ -65,7 +66,7 @@ type Build struct {
 	ID             int
 	Job            *Job
 	Status         ItemStatus
-	Logger         *log.Logger
+	Logger         *slog.Logger
 	abortedChannel chan string
 	flushChannel   chan bool // Instructs to flush bw
 	pendingTasksWG sync.WaitGroup
@@ -134,8 +135,8 @@ func (b *Build) runOnStatusTasks(status ItemStatus) {
 
 // runTask is responsible for running one task and return it's status
 func (b *Build) runTask(task *Task) ItemStatus {
-	b.Logger.Printf("Task %d has been started\n", task.ID)
-	defer b.Logger.Printf("Task %d is completed\n", task.ID)
+	b.Logger.Debug("task started", "task", task.ID)
+	defer b.Logger.Debug("task completed", "task", task.ID)
 	// Disable output buffering, enable streaming
 	// Modify default streaming buffer size (thanks, webpack)
 	cmdOptions := cmd.Options{
@@ -151,15 +152,15 @@ func (b *Build) runTask(task *Task) ItemStatus {
 	defer func() {
 		err = bw.Flush()
 		if err != nil {
-			b.Logger.Println(err)
+			b.Logger.Error("flush task log", "task", task.ID, "err", err)
 		}
 		err = file.Close()
 		if err != nil {
-			b.Logger.Println(err)
+			b.Logger.Error("close task log", "task", task.ID, "err", err)
 		}
 	}()
 	if err != nil {
-		b.Logger.Println(err)
+		b.Logger.Error("create task log", "task", task.ID, "err", err)
 		return StatusFailed
 	}
 
@@ -215,7 +216,9 @@ func (b *Build) runTask(task *Task) ItemStatus {
 		condKilled := false
 		condTimer := time.AfterFunc(WHEN_EVAL_TIMEOUT*time.Second, func() {
 			condKilled = true
-			condCmd.Process.Kill()
+			if err := condCmd.Process.Kill(); err != nil {
+				b.Logger.Log(context.Background(), LevelTrace, "kill condition process", "task", task.ID, "err", err)
+			}
 		})
 		condErr = condCmd.Wait()
 		condTimer.Stop()
@@ -260,7 +263,9 @@ func (b *Build) runTask(task *Task) ItemStatus {
 		condKilled := false
 		condTimer := time.AfterFunc(WHEN_EVAL_TIMEOUT*time.Second, func() {
 			condKilled = true
-			condCmd.Process.Kill()
+			if err := condCmd.Process.Kill(); err != nil {
+				b.Logger.Log(context.Background(), LevelTrace, "kill condition process", "task", task.ID, "err", err)
+			}
 		})
 		condErr = condCmd.Wait()
 		condTimer.Stop()
@@ -312,14 +317,14 @@ func (b *Build) runTask(task *Task) ItemStatus {
 				b.ProcessLogEntry(line, bw, task.ID, task.startedAt)
 			case abortedDetails := <-b.abortedChannel:
 				b.abortedReason = abortedDetails
-				b.Logger.Printf("Aborting via abortedChannel: %s\n", abortedDetails)
+				b.Logger.Info("aborting task", "task", task.ID, "reason", abortedDetails)
 				switch abortedDetails {
 				case StatusTimedOut:
 					b.ProcessLogEntry("> Timed out.", bw, task.ID, task.startedAt)
 				case StatusAborted:
 					b.ProcessLogEntry("> Aborted by a user.", bw, task.ID, task.startedAt)
 				default:
-					b.Logger.Printf("Unhandled abort method: %s\n", abortedDetails)
+					b.Logger.Warn("unhandled abort method", "task", task.ID, "reason", abortedDetails)
 				}
 				// taskCmd.Stop() send SIGTERM signal to the command. Most of the time it works just fine, however
 				// there are applications which will just ignore it or are in busy state and can't handle the signal.
@@ -328,27 +333,30 @@ func (b *Build) runTask(task *Task) ItemStatus {
 					b.ProcessLogEntry("> Killing the command...", bw, task.ID, task.startedAt)
 					err = syscall.Kill(taskCmd.Status().PID, syscall.SIGKILL)
 					if err != nil {
-						b.Logger.Printf("Unable to kill aborted task %d: %s\n", task.ID, err.Error())
+						b.Logger.Error("kill aborted task", "task", task.ID, "err", err)
 					}
 				})
-				taskCmd.Stop()
+				if err := taskCmd.Stop(); err != nil {
+					b.Logger.Log(context.Background(), LevelTrace, "stop aborted task", "task", task.ID, "err", err)
+				}
 				go func() {
 					// This call is blocking and should be executed outside of channel message handler
 					<-taskCmd.Done()
 					abortTimer.Stop()
 				}()
 			case <-b.flushChannel:
-				b.Logger.Println("Flushing log file...")
-				bw.Flush()
+				b.Logger.Debug("flushing task log", "task", task.ID)
+				if err := bw.Flush(); err != nil {
+					b.Logger.Error("flush task log", "task", task.ID, "err", err)
+				}
 			}
 		}
 	}()
 
 	// Run and wait for Cmd to return
 	status := <-taskCmd.Start()
-	b.Logger.Printf(
-		"Task %d result: Completed: %v, Exit code %d, Error %s",
-		task.ID, status.Complete, status.Exit, status.Error,
+	b.Logger.Debug("task result",
+		"task", task.ID, "completed", status.Complete, "exit", status.Exit, "err", status.Error,
 	)
 
 	// Cmd has finished but wait for goroutine to print all lines
@@ -416,7 +424,7 @@ func (b *Build) CollectArtifacts() {
 		pattern := b.GetWorkspaceDir() + artPattern
 		files, err := doublestar.Glob(pattern)
 		if err != nil {
-			b.Logger.Println(err)
+			b.Logger.Error("glob artifacts", "pattern", pattern, "err", err)
 			continue
 		}
 
@@ -424,7 +432,7 @@ func (b *Build) CollectArtifacts() {
 			// Skip directories
 			fi, err := os.Stat(f)
 			if err != nil {
-				b.Logger.Println(err)
+				b.Logger.Error("stat artifact", "file", f, "err", err)
 				continue
 			}
 			if fi.IsDir() {
@@ -436,14 +444,14 @@ func (b *Build) CollectArtifacts() {
 			// Recreate folder structure relative to artifacts directory
 			err = os.MkdirAll(b.GetArtifactsDir()+relDir, os.ModePerm)
 			if err != nil {
-				b.Logger.Println(err)
+				b.Logger.Error("create artifacts dir", "dir", b.GetArtifactsDir()+relDir, "err", err)
 				continue
 			}
-			b.Logger.Printf("Copying artifact %s...\n", relPath)
+			b.Logger.Debug("copying artifact", "path", relPath)
 			c := cmd.NewCmd("cp", f, b.GetArtifactsDir()+relPath)
 			s := <-c.Start()
 			if s.Exit != 0 {
-				b.Logger.Printf("Unable to copy %s, code %d\n", f, s.Exit)
+				b.Logger.Error("copy artifact", "file", f, "exit", s.Exit)
 			} else {
 				b.BuildArtifacts = append(b.BuildArtifacts, &ArtifactInfo{
 					Size:     fi.Size(),
@@ -461,7 +469,7 @@ func (b *Build) BroadcastUpdate() {
 	bID := b.ID
 	data, err := b.GenerateBuildUpdateData()
 	if err != nil {
-		b.Logger.Println(err)
+		b.Logger.Error("generate build update data", "err", err)
 		return
 	}
 	msg := MsgBroadcast{
@@ -475,7 +483,7 @@ func (b *Build) BroadcastUpdate() {
 		return hb.Put(Itob(bID), data)
 	})
 	if err != nil {
-		b.Logger.Println(err)
+		b.Logger.Error("save build history", "err", err)
 	}
 }
 
@@ -511,7 +519,7 @@ func (b *Build) ProcessLogEntry(line string, buffer *bufio.Writer, taskID int, s
 	// Write to the task's log file
 	_, err := buffer.WriteString(pline)
 	if err != nil {
-		b.Logger.Println(err)
+		b.Logger.Error("write task log", "task", taskID, "err", err)
 	}
 
 	// Send the log to all subscribed users
@@ -564,7 +572,7 @@ func (b *Build) GetTasksStatus() []*TaskStatus {
 
 // SetBuildStatus sets the status of the builds
 func (b *Build) SetBuildStatus(status ItemStatus) {
-	b.Logger.Printf("Status: %s\n", status)
+	b.Logger.Info("build status", "status", status)
 	b.Status = status
 	if status == StatusRunning {
 		b.StartedAt = time.Now()
@@ -584,15 +592,15 @@ func (b *Build) SetBuildStatus(status ItemStatus) {
 		if b.Job.Timeout != "" {
 			duration, err := time.ParseDuration(b.Job.Timeout)
 			if err != nil {
-				b.Logger.Println(err)
+				b.Logger.Error("parse job timeout", "timeout", b.Job.Timeout, "err", err)
 			} else {
 				b.timer = time.NewTimer(duration)
 				go func() {
 					<-b.timer.C
-					b.Logger.Printf("Build %d has timed out\n", b.ID)
+					b.Logger.Warn("build timed out", "build", b.ID)
 					err = GlobalQueue.Abort(b.ID, StatusTimedOut)
 					if err != nil {
-						b.Logger.Println(err)
+						b.Logger.Error("abort timed out build", "build", b.ID, "err", err)
 					}
 				}()
 			}
@@ -620,7 +628,7 @@ func (b *Build) SetBuildStatus(status ItemStatus) {
 		b.Cleanup()
 		err := RecordBuildDuration(b.Job.Name, int(b.Duration))
 		if err != nil {
-			b.Logger.Println(err)
+			b.Logger.Error("record build duration", "err", err)
 		}
 		b.BroadcastUpdate()
 	}
@@ -643,8 +651,7 @@ func CreateBuild(job *Job, jobPath string) (*Build, error) {
 			}
 			counti++
 		}
-		gb.Put([]byte("count"), []byte(strconv.Itoa(counti)))
-		return nil
+		return gb.Put([]byte("count"), []byte(strconv.Itoa(counti)))
 	})
 	if err != nil {
 		return nil, err
@@ -658,43 +665,43 @@ func CreateBuild(job *Job, jobPath string) (*Build, error) {
 		Params:         job.DefaultParams,
 		ETA:            GetJobETA(job.Name),
 	}
-	build.Logger = log.New(os.Stdout, fmt.Sprintf("[build #%d] ", build.ID), log.Lmicroseconds|log.Lshortfile)
+	build.Logger = L.With("build", build.ID)
 
 	// Create workspace
 	err = os.MkdirAll(build.GetWorkspaceDir(), os.ModePerm)
 	if err != nil {
-		build.Logger.Println(err)
+		build.Logger.Error("create workspace", "dir", build.GetWorkspaceDir(), "err", err)
 		return nil, err
 	}
-	build.Logger.Printf("Workspace %s has been created\n", build.GetWorkspaceDir())
+	build.Logger.Debug("workspace created", "dir", build.GetWorkspaceDir())
 
 	// Create wakespace
 	err = os.MkdirAll(build.GetWakespaceDir(), os.ModePerm)
 	if err != nil {
-		build.Logger.Println(err)
+		build.Logger.Error("create wakespace", "dir", build.GetWakespaceDir(), "err", err)
 		return nil, err
 	}
-	build.Logger.Printf("Wakespace %s has been created\n", build.GetWakespaceDir())
+	build.Logger.Debug("wakespace created", "dir", build.GetWakespaceDir())
 
 	// Create artifacts dir
 	err = os.MkdirAll(build.GetArtifactsDir(), os.ModePerm)
 	if err != nil {
-		build.Logger.Println(err)
+		build.Logger.Error("create artifacts dir", "dir", build.GetArtifactsDir(), "err", err)
 		return nil, err
 	}
 
 	input, err := yaml.Marshal(build.Job)
 	if err != nil {
-		build.Logger.Println(err)
+		build.Logger.Error("marshal build config", "err", err)
 		return nil, err
 	}
 
 	err = os.WriteFile(build.GetBuildConfigFilename(), input, os.ModePerm)
 	if err != nil {
-		build.Logger.Println(err)
+		build.Logger.Error("write build config", "file", build.GetBuildConfigFilename(), "err", err)
 		return nil, err
 	}
-	build.Logger.Printf("Build config %s has been created\n", build.GetBuildConfigFilename())
+	build.Logger.Debug("build config created", "file", build.GetBuildConfigFilename())
 
 	build.SetBuildStatus(StatusPending)
 	return &build, nil

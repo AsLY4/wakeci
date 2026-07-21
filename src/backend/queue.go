@@ -25,7 +25,7 @@ func (q *Queue) Take() {
 	if toRun {
 	QLoop:
 		for id, qItem := range q.queued {
-			Logger.Printf("Inspecting build %d from queue\n", qItem.ID)
+			L.Debug("inspecting build from queue", "build", qItem.ID)
 			if qItem.Job.Concurrency != 0 {
 				// Verify number of running builds of the same job
 				parallel := 0
@@ -43,20 +43,20 @@ func (q *Queue) Take() {
 			break
 		}
 		if foundItem {
-			Logger.Printf("Running item %d, build %d\n", foundItemID, q.queued[foundItemID].ID)
+			L.Debug("running item", "item", foundItemID, "build", q.queued[foundItemID].ID)
 			q.running = append(q.running, q.queued[foundItemID])
 			go q.queued[foundItemID].Start()
 			q.queued[foundItemID] = nil
 			q.queued = append(q.queued[:foundItemID], q.queued[foundItemID+1:]...)
 		} else {
-			Logger.Println("Nothing to run")
+			L.Debug("nothing to run")
 		}
 	}
 	q.mutex.Unlock()
 	if toRun && foundItem {
 		q.Take()
 	}
-	Logger.Printf("Executing %d builds, %d in queue\n", len(q.running), len(q.queued))
+	L.Debug("queue status", "running", len(q.running), "queued", len(q.queued))
 }
 
 // TakeNow takes the build from the queue and starts executing it now
@@ -66,7 +66,7 @@ func (q *Queue) TakeNow(buildID int) error {
 	q.mutex.Lock()
 	for id, qItem := range q.queued {
 		if qItem.ID == buildID {
-			Logger.Printf("Running immediately item %d, build %d\n", id, q.queued[id].ID)
+			L.Debug("running item immediately", "item", id, "build", q.queued[id].ID)
 			q.running = append(q.running, q.queued[id])
 			go q.queued[id].Start()
 			q.queued[id] = nil
@@ -78,7 +78,7 @@ func (q *Queue) TakeNow(buildID int) error {
 	q.mutex.Unlock()
 
 	q.Take()
-	Logger.Printf("Executing %d builds, %d in queue\n", len(q.running), len(q.queued))
+	L.Debug("queue status", "running", len(q.running), "queued", len(q.queued))
 	if !foundItem {
 		return fmt.Errorf("build with id %d is not in the queue", buildID)
 	}
@@ -103,7 +103,7 @@ func (q *Queue) Add(b *Build) {
 			}
 		}
 	}
-	Logger.Printf("New build queued: %s %d\n", b.Job.Name, b.ID)
+	L.Info("new build queued", "job", b.Job.Name, "build", b.ID)
 }
 
 // Remove removes a build from Queue
@@ -122,7 +122,7 @@ func (q *Queue) Remove(id int) {
 			return
 		}
 	}
-	Logger.Printf("Build %d was not found in Q\n", id)
+	L.Warn("build not found in queue", "build", id)
 }
 
 // Verify returns true if a build with provided id is queued or running
@@ -185,13 +185,13 @@ func (q *Queue) SetConcurrency(number int) {
 		return nil
 	})
 	if err != nil {
-		Logger.Println(err)
+		L.Error("save concurrency setting", "err", err)
 		return
 	}
 	q.mutex.Lock()
 	q.concurrentBuilds = number
 	q.mutex.Unlock()
-	Logger.Printf("Number of concurrent builds changed to %d\n", number)
+	L.Info("concurrency changed", "concurrentBuilds", number)
 	q.Take()
 }
 
@@ -212,7 +212,7 @@ func CreateQueue() (*Queue, error) {
 		return nil, err
 	}
 
-	Logger.Printf("Creating Queue with %d concurrent builds\n", cb)
+	L.Debug("creating queue", "concurrentBuilds", cb)
 	q := &Queue{
 		concurrentBuilds: cb,
 	}

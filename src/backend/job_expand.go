@@ -16,7 +16,7 @@ func ExpandTasks(tasks *[]*Task) error {
 		for idx, t := range *tasks {
 			// Handle `include`
 			if t.IncludePath != "" {
-				Logger.Printf("Expanding include %s...\n", t.IncludePath)
+				L.Debug("expanding include", "path", t.IncludePath)
 				toInclude, err := ReadTasks(t.IncludePath)
 				if err != nil {
 					return err
@@ -27,7 +27,7 @@ func ExpandTasks(tasks *[]*Task) error {
 
 			// Handle `block`
 			if t.Block != nil {
-				Logger.Printf("Expanding block %v...\n", t.Name)
+				L.Debug("expanding block", "name", t.Name)
 				injectExpandedTasks(t, idx, t.Block, tasks)
 				break
 			}

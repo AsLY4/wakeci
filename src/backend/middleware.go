@@ -1,11 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -19,7 +20,37 @@ type HandlerLogger string
 // HL is a handle logger
 const HL HandlerLogger = "logger"
 
-// LogMi is a middleware that creates a new logger per request and logs total time that took to process a request
+// statusRecorder wraps http.ResponseWriter to capture the status code written
+// by the handler, so it can be included in the access log line. It forwards
+// Hijack/Flush so it stays transparent to websocket upgrades (/ws) and
+// streaming/compressed responses.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rec *statusRecorder) WriteHeader(status int) {
+	rec.status = status
+	rec.ResponseWriter.WriteHeader(status)
+}
+
+func (rec *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := rec.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
+	}
+	return hijacker.Hijack()
+}
+
+func (rec *statusRecorder) Flush() {
+	if flusher, ok := rec.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// LogMi is a middleware that creates a new logger per request and writes an
+// access log line (method, path, status, duration) unconditionally, since
+// request traffic is core operational visibility for an HTTP service.
 func LogMi(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
@@ -29,12 +60,11 @@ func LogMi(next http.Handler) http.Handler {
 		// Get IP address of a user
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
-			Logger.Println(err)
+			L.Error("split remote addr", "addr", r.RemoteAddr, "err", err)
 			host = r.RemoteAddr
 		}
 
-		// Get the settings
-		handlerLogger := log.New(os.Stdout, "["+logID+" "+host+"] ", log.Lmicroseconds|log.Lshortfile)
+		handlerLogger := L.With("logID", logID, "host", host)
 
 		// Get new context with key-value "settings"
 		ctx := context.WithValue(r.Context(), HL, handlerLogger)
@@ -42,13 +72,15 @@ func LogMi(next http.Handler) http.Handler {
 		// Get new http.Request with the new context
 		r = r.WithContext(ctx)
 
-		// Call actual handler
-		next.ServeHTTP(w, r.WithContext(ctx))
-
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		defer func() {
-			duration := time.Since(startTime)
-			handlerLogger.Printf("%s %s [took %s]\n", r.Method, r.URL, duration)
+			handlerLogger.Warn("request completed",
+				"method", r.Method, "path", r.URL.Path, "status", rec.status, "took", time.Since(startTime),
+			)
 		}()
+
+		// Call actual handler
+		next.ServeHTTP(rec, r)
 	})
 }
 
@@ -100,9 +132,9 @@ func StorageSecurityMi(next http.Handler) http.Handler {
 // AuthMi checks user credentials
 func AuthMi(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger, ok := r.Context().Value(HL).(*log.Logger)
+		logger, ok := r.Context().Value(HL).(*slog.Logger)
 		if !ok {
-			logger = Logger
+			logger = L
 		}
 
 		// Basic auth for API calls
@@ -117,19 +149,19 @@ func AuthMi(next http.Handler) http.Handler {
 			})
 
 			if err != nil {
-				logger.Println(err)
+				logger.Error("read password hash", "err", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Header().Set("Content-Type", "text/plain")
-				w.Write([]byte("Another triumph"))
+				writeBody(logger, w, []byte("Another triumph"))
 				return
 			}
 
 			err = bcrypt.CompareHashAndPassword(hashedPassword, []byte(password))
 			if err != nil {
-				logger.Println(err)
+				logger.Warn("basic auth failed", "err", err)
 				w.WriteHeader(http.StatusForbidden)
 				w.Header().Set("Content-Type", "text/plain")
-				w.Write([]byte("Forbidden"))
+				writeBody(logger, w, []byte("Forbidden"))
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -139,18 +171,18 @@ func AuthMi(next http.Handler) http.Handler {
 		// Session auth for vue calls
 		sessionToken, err := r.Cookie("session")
 		if err != nil {
-			logger.Println(err)
+			logger.Warn("missing session cookie", "err", err)
 			w.WriteHeader(http.StatusForbidden)
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte("Forbidden"))
+			writeBody(logger, w, []byte("Forbidden"))
 			return
 		}
 		err = GlobalSessionStorage.Verify(sessionToken.Value)
 		if err != nil {
-			logger.Println(err)
+			logger.Warn("session verification failed", "err", err)
 			w.WriteHeader(http.StatusForbidden)
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte("Forbidden"))
+			writeBody(logger, w, []byte("Forbidden"))
 			return
 		}
 		next.ServeHTTP(w, r)

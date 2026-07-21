@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -19,11 +21,15 @@ func RecordBuildDuration(jobName string, duration int) error {
 			return fmt.Errorf("job with name %s is not found in JobsBucket", jobName)
 		}
 
-		// Load duration list
+		// Load duration list. The key doesn't exist yet for a job that
+		// hasn't completed a build, which is a normal state, not an error.
 		durationListByte := jb.Get([]byte("durationList"))
 		var durationList []int
-
-		json.Unmarshal(durationListByte, &durationList)
+		if durationListByte != nil {
+			if err := json.Unmarshal(durationListByte, &durationList); err != nil {
+				slog.Log(context.Background(), LevelTrace, "unmarshal duration list", "job", jobName, "err", err)
+			}
+		}
 
 		durationList = append(durationList, duration)
 		// Shift duration list
@@ -51,13 +57,14 @@ func GetJobETA(jobName string) int {
 			return fmt.Errorf("job with name %s is not found in JobsBucket", jobName)
 		}
 
-		// Load duration list
+		// Load duration list. The key doesn't exist yet for a job that
+		// hasn't completed a build, which is a normal state, not an error.
 		durationListByte := jb.Get([]byte("durationList"))
 		var durationList []int
-
-		err := json.Unmarshal(durationListByte, &durationList)
-		if err != nil {
-			return err
+		if durationListByte != nil {
+			if err := json.Unmarshal(durationListByte, &durationList); err != nil {
+				return err
+			}
 		}
 
 		eta = calcAvg(&durationList)
@@ -65,7 +72,7 @@ func GetJobETA(jobName string) int {
 	})
 
 	if err != nil {
-		Logger.Println(err)
+		L.Error("get job eta", "job", jobName, "err", err)
 	}
 	return eta
 }

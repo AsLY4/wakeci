@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -18,9 +18,9 @@ import (
 // @Failure      500      {string}   string
 // @Router       /jobs/ [get]
 func HandleJobsView(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	var data []*JobsListData
@@ -50,22 +50,22 @@ func HandleJobsView(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		logger.Println(err)
+		logger.Error("list jobs", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	payloadB, err := json.Marshal(data)
 	if err != nil {
-		logger.Println(err)
+		logger.Error("marshal jobs list", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(payloadB)
+	writeBody(logger, w, payloadB)
 }
 
 // HandleJobsCreate creates a new job file from default template
@@ -78,19 +78,19 @@ func HandleJobsView(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {string}    string
 // @Router       /jobs/create [post]
 func HandleJobsCreate(w http.ResponseWriter, r *http.Request) {
-	logger, ok := r.Context().Value(HL).(*log.Logger)
+	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
-		logger = Logger
+		logger = L
 	}
 
 	name := r.FormValue("name")
 	path := Config.JobDir + name + Config.jobsExt
 
 	if _, err := os.Stat(path); err == nil {
-		logger.Printf("File %s already exists\n", path)
+		logger.Warn("job file already exists", "path", path)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("Job with this name already exists"))
+		writeBody(logger, w, []byte("Job with this name already exists"))
 		return
 	} else if os.IsNotExist(err) {
 		// Verify that it is still a valid yaml file and it is possible to create
@@ -98,33 +98,33 @@ func HandleJobsCreate(w http.ResponseWriter, r *http.Request) {
 		job := Job{}
 		err := yaml.Unmarshal([]byte(NewJobTemplate), &job)
 		if err != nil {
-			logger.Println(err)
+			logger.Error("unmarshal new job template", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte(err.Error()))
+			writeBody(logger, w, []byte(err.Error()))
 			return
 		}
 		err = os.WriteFile(path, []byte(NewJobTemplate), 0644)
 		if err != nil {
-			logger.Println(err)
+			logger.Error("write job file", "path", path, "err", err)
 			w.WriteHeader(http.StatusBadRequest)
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte(err.Error()))
+			writeBody(logger, w, []byte(err.Error()))
 			return
 		}
-		logger.Printf("Job %s was created\n", name)
+		logger.Info("job created", "job", name)
 		err = RegisterJob(path)
 		if err != nil {
-			logger.Println(err)
+			logger.Error("register job", "job", name, "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
+			writeBody(logger, w, []byte(err.Error()))
 			return
 		}
 	} else {
-		logger.Println(err)
+		logger.Error("stat job file", "path", path, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(err.Error()))
+		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
 }

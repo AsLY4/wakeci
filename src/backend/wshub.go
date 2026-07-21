@@ -19,7 +19,7 @@ type Hub struct {
 }
 
 func newHub() *Hub {
-	Logger.Println("Starting wshub...")
+	L.Debug("starting wshub")
 	return &Hub{
 		broadcast:  make(chan *MsgBroadcast),
 		register:   make(chan *Client),
@@ -32,18 +32,18 @@ func (h *Hub) run() {
 	for {
 		select {
 		case client := <-h.register:
-			client.Logger.Println("New ws connection registered")
+			client.Logger.Debug("ws connection registered")
 			h.clients[client] = true
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
-				client.Logger.Println("Connection unregistered")
+				client.Logger.Debug("ws connection unregistered")
 				delete(h.clients, client)
 				close(client.send)
 			}
 		case message := <-h.broadcast:
 			msgB, err := json.Marshal(message)
 			if err != nil {
-				Logger.Println(err)
+				L.Error("marshal broadcast message", "err", err)
 			} else {
 				for client := range h.clients {
 					ok, _ := client.IsSubscribed(message.Type)
@@ -51,7 +51,7 @@ func (h *Hub) run() {
 						select {
 						case client.send <- msgB:
 						default:
-							client.Logger.Println("Buffer is full")
+							client.Logger.Warn("send buffer full, dropping client")
 							close(client.send)
 							delete(h.clients, client)
 						}

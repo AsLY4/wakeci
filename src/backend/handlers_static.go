@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,9 +10,9 @@ import (
 // VueResourcesMi checks if path needs to be stripped out before serving the location
 func HandleVueResources(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger, ok := r.Context().Value(HL).(*log.Logger)
+		logger, ok := r.Context().Value(HL).(*slog.Logger)
 		if !ok {
-			logger = Logger
+			logger = L
 		}
 		// First check if it is any of API, AUTH or STORAGE calls. This urls
 		// should never reach this point
@@ -20,7 +20,7 @@ func HandleVueResources(h http.Handler) http.Handler {
 		case strings.HasPrefix(r.URL.Path, "/api/"), strings.HasPrefix(r.URL.Path, "/auth/"), strings.HasPrefix(r.URL.Path, "/storage/"):
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Header().Set("Content-Type", "text/plain")
-			logger.Printf("vue 500 %s\n", r.URL.Path)
+			logger.Error("vue 500", "path", r.URL.Path)
 			return
 		}
 
@@ -38,7 +38,7 @@ func HandleVueResources(h http.Handler) http.Handler {
 			// serve index.html (/assets/) in this case
 			r2.URL.Path = "/assets/"
 		}
-		logger.Printf("vue %s --> %s\n", r.URL.Path, r2.URL.Path)
+		logger.Debug("vue rewrite", "from", r.URL.Path, "to", r2.URL.Path)
 		h.ServeHTTP(w, r2)
 	})
 }
@@ -46,9 +46,9 @@ func HandleVueResources(h http.Handler) http.Handler {
 // WakespaceResourceMi serves content of wakespace/ dir
 func HandleWakespaceResource(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger, ok := r.Context().Value(HL).(*log.Logger)
+		logger, ok := r.Context().Value(HL).(*slog.Logger)
 		if !ok {
-			logger = Logger
+			logger = L
 		}
 
 		r2 := new(http.Request)
@@ -56,7 +56,7 @@ func HandleWakespaceResource(h http.Handler) http.Handler {
 		r2.URL = new(url.URL)
 		*r2.URL = *r.URL
 		r2.URL.Path = strings.TrimPrefix(r.URL.Path, "/storage/build/")
-		logger.Printf("storage %s --> %s\n", r.URL.Path, r2.URL.Path)
+		logger.Debug("storage rewrite", "from", r.URL.Path, "to", r2.URL.Path)
 		h.ServeHTTP(w, r2)
 	})
 }
