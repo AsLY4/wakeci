@@ -203,6 +203,15 @@ func GetJobNameFromPath(path string) string {
 	return nameExt[0 : len(nameExt)-len(Config.jobsExt)]
 }
 
+// isValidJobName reports whether name is safe to use as a job file name
+// directly under Config.JobDir. Handlers that take a job name from a chi
+// URL parameter get this guarantee for free from the router (a path
+// parameter can never contain a separator); this exists for the one handler
+// that takes a job name from form/query data instead.
+func isValidJobName(name string) bool {
+	return name != "" && !strings.ContainsAny(name, "/\\")
+}
+
 // ScanAllJobs scans for all available jobs and saves them in database
 func ScanAllJobs() {
 	// Clean Cron entries

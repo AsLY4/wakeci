@@ -84,6 +84,13 @@ func HandleJobsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := r.FormValue("name")
+	if !isValidJobName(name) {
+		logger.Warn("invalid job name", "name", name)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Header().Set("Content-Type", "text/plain")
+		writeBody(logger, w, []byte("Invalid job name"))
+		return
+	}
 	path := Config.JobDir + name + Config.jobsExt
 
 	if _, err := os.Stat(path); err == nil {

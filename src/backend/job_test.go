@@ -6,6 +6,30 @@ import (
 	"testing"
 )
 
+func TestIsValidJobName(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{name: "SimpleName", input: "my-job", wantErr: false},
+		{name: "NameWithUnderscoreAndDigits", input: "job_123", wantErr: false},
+		{name: "Empty", input: "", wantErr: true},
+		{name: "ForwardSlash", input: "../../../../tmp/pwn", wantErr: true},
+		{name: "SingleSlash", input: "a/b", wantErr: true},
+		{name: "Backslash", input: `a\b`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isValidJobName(tt.input)
+			if got == tt.wantErr {
+				t.Errorf("isValidJobName(%q) = %v, wanted valid=%v", tt.input, got, !tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestGetJobNameFromPath(t *testing.T) {
 	Config = &WakeConfig{jobsExt: ".yaml"}
 
