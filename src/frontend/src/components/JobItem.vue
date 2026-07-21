@@ -70,6 +70,7 @@
 
 <script>
 import RunJobButton from "@/components/RunJobButton.vue";
+import { escapeHtml } from "@/store/utils";
 import axios from "axios";
 
 export default {
@@ -94,7 +95,7 @@ export default {
                 .delete(url)
                 .then((response) => {
                     this.$notify({
-                        text: `${this.job.name} has been deleted`,
+                        text: `${escapeHtml(this.job.name)} has been deleted`,
                         type: "primary",
                     });
                     this.toggleModalDelete();
@@ -113,7 +114,7 @@ export default {
                 .post(url, data)
                 .then((response) => {
                     this.$notify({
-                        text: `Job ${this.job.name} is ` + (response.data ? "enabled" : "disabled"),
+                        text: `Job ${escapeHtml(this.job.name)} is ` + (response.data ? "enabled" : "disabled"),
                         type: "primary",
                     });
                     this.isActive = response.data;

@@ -1,3 +1,14 @@
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
+// escapeHtml makes a value safe to interpolate into notification text, which
+// is rendered as raw HTML (see App.vue's dangerouslySetInnerHtml) so that
+// notifications can include a clickable build link. Any value that isn't
+// literal markup we authored ourselves - job names, API error bodies, build
+// IDs - must go through this first.
+export function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+}
+
 export function findInContainer(container, key, value) {
     for (let i = 0; i < container.length; i++) {
         if (container[i][key] === value) {

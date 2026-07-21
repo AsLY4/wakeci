@@ -6,6 +6,7 @@ import Notifications from "@kyvg/vue3-notification";
 import { notify } from "@kyvg/vue3-notification";
 import axios from "axios";
 import mitt from "mitt";
+import { escapeHtml } from "./store/utils";
 
 const emitter = mitt();
 
@@ -26,7 +27,7 @@ axios.interceptors.response.use(
         // Exclude special request to check if user is logged in
         if (error.request.responseURL.indexOf("/_isLoggedIn") === -1) {
             notify({
-                text: (error.response && error.response.data) || error,
+                text: escapeHtml((error.response && error.response.data) || error),
                 type: "error",
             });
             if (error.response.status === 403) {

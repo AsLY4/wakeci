@@ -55,7 +55,7 @@
 
 <script>
 import RunFormItem from "@/components/RunFormItem.vue";
-import { generateRandomString } from "@/store/utils";
+import { escapeHtml, generateRandomString } from "@/store/utils";
 import axios from "axios";
 
 export default {
@@ -92,8 +92,9 @@ export default {
             axios
                 .post(url)
                 .then((response) => {
+                    const buildID = escapeHtml(response.data);
                     this.$notify({
-                        text: `${this.jobName} has been scheduled (<a class="inverse-link" href="/build/${response.data}/">#${response.data}</a>)`,
+                        text: `${escapeHtml(this.jobName)} has been scheduled (<a class="inverse-link" href="/build/${buildID}/">#${buildID}</a>)`,
                         type: "primary",
                         duration: 10000,
                     });

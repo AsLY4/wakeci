@@ -31,6 +31,29 @@ describe("Jobs page", function () {
         cy.get(`[data-cy=${jobName}]`).should("not.exist");
     });
 
+    it("should escape HTML in a job name shown in notifications", function () {
+        // Regression test: notifications render as raw HTML (App.vue's
+        // dangerouslySetInnerHtml, used so a scheduled-build notification can
+        // include a clickable link), so any job name embedded in one used to
+        // be interpreted as markup instead of text.
+        cy.visit("/jobs");
+        cy.login();
+        cy.get("[data-cy=create-job]").click();
+        const jobNamePrefix = "myjobxss" + new Date().getTime();
+        const jobName = `${jobNamePrefix}<img src=x onerror="window.__xssTriggered = true">`;
+        cy.get("input[name=new-job-name]").clear().type(jobName);
+        cy.get("[data-cy=create-job-button]").click();
+        cy.get(".notification-content").should("contain", "New job created");
+
+        cy.contains(".row", jobNamePrefix).find("[data-cy=run-job-button]").click();
+        cy.contains(".row", jobNamePrefix).find("[data-cy=start-job-confirm]").click();
+        cy.get(".notification-content").should("contain", "has been scheduled");
+
+        cy.window().then((win) => {
+            expect(win.__xssTriggered).to.be.undefined;
+        });
+    });
+
     it("should edit a job", function () {
         cy.visit("/jobs");
         cy.login();
