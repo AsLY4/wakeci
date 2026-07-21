@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,6 +56,33 @@ func TestCreateWakeConfig(t *testing.T) {
 
 		if _, err := CreateWakeConfig(path); err == nil {
 			t.Error("expected an error, got nil")
+		}
+	})
+
+	t.Run("AbsoluteDirsWithoutTrailingSlash", func(t *testing.T) {
+		// WorkDir/JobDir are joined with filenames via plain string
+		// concatenation elsewhere (e.g. Config.JobDir+name+Config.jobsExt),
+		// so an absolute path configured without a trailing separator must
+		// still end up with one - regression test for a bug where only
+		// relative paths got normalized this way.
+		dir := t.TempDir()
+		workDir := filepath.Join(dir, "workdir")
+		jobDir := filepath.Join(dir, "jobdir")
+		path := filepath.Join(dir, "Wakefile.yaml")
+		content := "workdir: " + workDir + "\njobdir: " + jobDir + "\n"
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+
+		config, err := CreateWakeConfig(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.HasSuffix(config.WorkDir, string(os.PathSeparator)) {
+			t.Errorf("expected WorkDir to end with a separator, got %q", config.WorkDir)
+		}
+		if !strings.HasSuffix(config.JobDir, string(os.PathSeparator)) {
+			t.Errorf("expected JobDir to end with a separator, got %q", config.JobDir)
 		}
 	})
 }

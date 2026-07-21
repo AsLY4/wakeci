@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -83,11 +84,20 @@ func CreateWakeConfig(path string) (*WakeConfig, error) {
 		return nil, err
 	}
 
+	// Both dirs are used elsewhere via plain string concatenation
+	// (e.g. Config.JobDir+name+Config.jobsExt), so they must always end in a
+	// separator - whether or not the configured path was already absolute.
 	if !filepath.IsAbs(config.WorkDir) {
-		config.WorkDir = filepath.Join(cwd, config.WorkDir) + "/"
+		config.WorkDir = filepath.Join(cwd, config.WorkDir)
+	}
+	if !strings.HasSuffix(config.WorkDir, string(os.PathSeparator)) {
+		config.WorkDir += string(os.PathSeparator)
 	}
 	if !filepath.IsAbs(config.JobDir) {
-		config.JobDir = filepath.Join(cwd, config.JobDir) + "/"
+		config.JobDir = filepath.Join(cwd, config.JobDir)
+	}
+	if !strings.HasSuffix(config.JobDir, string(os.PathSeparator)) {
+		config.JobDir += string(os.PathSeparator)
 	}
 	// Log fields individually rather than the whole struct: config.secrets
 	// holds decrypted secret values and must never be logged.
