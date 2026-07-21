@@ -142,36 +142,64 @@ func (q *Queue) Verify(id int) bool {
 	return false
 }
 
-// Abort schedules build to be aborted
+// Abort schedules build to be aborted. abortedChannel is only received while
+// a task is actively running (see Build.runTask), so the send must never
+// happen while holding q.mutex: a build between tasks, or one that hasn't
+// started/has already finished, would have no listener, blocking the send
+// forever and freezing every other Queue method for the life of the process.
 func (q *Queue) Abort(id int, reason string) error {
 	q.mutex.Lock()
-	defer q.mutex.Unlock()
+	var running *Build
 	for _, item := range q.running {
 		if item.ID == id {
-			item.abortedChannel <- reason
-			return nil
+			running = item
+			break
 		}
 	}
-	for _, item := range q.queued {
-		if item.ID == id {
-			go item.SetBuildStatus(StatusAborted)
-			return nil
+	if running == nil {
+		for _, item := range q.queued {
+			if item.ID == id {
+				q.mutex.Unlock()
+				go item.SetBuildStatus(StatusAborted)
+				return nil
+			}
 		}
+		q.mutex.Unlock()
+		return fmt.Errorf("Build %d not found in Q", id)
 	}
-	return fmt.Errorf("Build %d not found in Q", id)
+	q.mutex.Unlock()
+
+	select {
+	case running.abortedChannel <- reason:
+	default:
+		// No task is currently running to receive the signal (e.g. between
+		// tasks). Nothing more to do safely without blocking; the caller can
+		// retry.
+	}
+	return nil
 }
 
-// FlushLogs instructs to flush logs
+// FlushLogs instructs to flush logs. See Abort's comment: the send must
+// happen outside q.mutex and must never block.
 func (q *Queue) FlushLogs(id int) error {
 	q.mutex.Lock()
-	defer q.mutex.Unlock()
+	var running *Build
 	for _, item := range q.running {
 		if item.ID == id {
-			item.flushChannel <- true
-			return nil
+			running = item
+			break
 		}
 	}
-	return fmt.Errorf("Build is not running")
+	q.mutex.Unlock()
+	if running == nil {
+		return fmt.Errorf("Build is not running")
+	}
+
+	select {
+	case running.flushChannel <- true:
+	default:
+	}
+	return nil
 }
 
 // SetConcurrency sets number of concurrent builds
