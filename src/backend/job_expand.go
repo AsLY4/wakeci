@@ -1,18 +1,30 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
 	yaml "gopkg.in/yaml.v2"
 )
 
+// maxTaskExpansions bounds how many include/block substitutions ExpandTasks
+// will perform. Each substitution re-reads and re-parses a file, so a
+// self-referencing (or mutually cyclic) include would otherwise loop
+// forever, pinning a CPU core and hammering disk indefinitely - this is
+// generous enough that no legitimate job (even one reusing the same shared
+// fragment many times) would ever hit it.
+const maxTaskExpansions = 1000
+
 // ExpandTasks :
 // - replaces include keyword with extracted tasks
 // - moves tasks outside of blocks statement
 func ExpandTasks(tasks *[]*Task) error {
 	finished := false
-	for !finished {
+	for expansions := 0; !finished; expansions++ {
+		if expansions >= maxTaskExpansions {
+			return fmt.Errorf("too many include/block expansions (%d) - check for a cyclic include", maxTaskExpansions)
+		}
 		for idx, t := range *tasks {
 			// Handle `include`
 			if t.IncludePath != "" {

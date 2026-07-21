@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestReadTasks(t *testing.T) {
@@ -78,6 +79,31 @@ func TestExpandTasks(t *testing.T) {
 		tasks := []*Task{{IncludePath: "missing.yaml"}}
 		if err := ExpandTasks(&tasks); err == nil {
 			t.Error("expected an error, got nil")
+		}
+	})
+
+	// TestExpandTasks/CyclicInclude is a regression test: ExpandTasks used to
+	// have no cycle/depth limit, so an include fragment that (directly or
+	// indirectly) references itself looped forever - a CPU/disk exhaustion
+	// DoS reachable from an ordinary job trigger, not a crash. It must now
+	// return an error quickly instead of hanging.
+	t.Run("CyclicInclude", func(t *testing.T) {
+		loopContent := []byte("- name: loop\n  include: loop.yaml\n")
+		if err := os.WriteFile(filepath.Join(dir, "loop.yaml"), loopContent, 0644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		tasks := []*Task{{IncludePath: "loop.yaml"}}
+
+		done := make(chan error, 1)
+		go func() { done <- ExpandTasks(&tasks) }()
+
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Error("expected an error for a self-referencing include, got nil")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("ExpandTasks did not return - a cyclic include is looping forever")
 		}
 	})
 
