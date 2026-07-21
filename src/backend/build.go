@@ -112,10 +112,13 @@ func (b *Build) Start() {
 	b.SetBuildStatus(StatusFinished)
 }
 
-// runOnStatusTasks runs tasks on status change
+// runOnStatusTasks runs tasks on status change. When status is StatusPending,
+// callers must call pendingTasksWG.Add(1) themselves before starting this in
+// a goroutine (see SetBuildStatus) - a WaitGroup's Add must happen-before the
+// matching Wait, which isn't guaranteed if Add runs inside the goroutine
+// Wait is racing against.
 func (b *Build) runOnStatusTasks(status ItemStatus) {
 	if status == StatusPending {
-		b.pendingTasksWG.Add(1)
 		defer b.pendingTasksWG.Done()
 	}
 	for _, task := range b.Job.Tasks {
@@ -585,6 +588,7 @@ func (b *Build) SetBuildStatus(status ItemStatus) {
 		// Run onStatusTasks of kind pending in separate goroutine so it doesn't
 		// slow down putting build into queue. Also it is expected to be something
 		// really simple, like setting commit status in VCS
+		b.pendingTasksWG.Add(1)
 		go b.runOnStatusTasks(status)
 	case StatusRunning:
 		b.BroadcastUpdate()
