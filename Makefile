@@ -4,6 +4,8 @@ VERSION=0.0.0
 VUE_VERSION_SUFFIX:=$(shell date +"%d%b")
 MONOVA:=$(shell which monova dot 2> /dev/null)
 
+export PATH := $(PATH):$(shell go env GOPATH)/bin
+
 version:
 ifdef MONOVA
 override VERSION=$(shell monova)
@@ -37,13 +39,43 @@ runb: src/backend/wakeci
 	ls *.go | entr -sr "cd ../../ && make src/backend/wakeci && ./src/backend/wakeci"
 
 test_go:
-	cd src/backend && go test
+	cd src/backend && go test ./...
+
+test: test_go
 
 testprod: test_go
 	cd src/frontend && npm run test:prod
 
 testdev: test_go
 	cd src/frontend && npm run test:dev
+
+vet:
+	cd src/backend && go vet ./...
+
+fmt:
+	@command -v goimports >/dev/null 2>&1 || { \
+	  echo "goimports is not installed. Install it with:"; \
+	  echo "  go install golang.org/x/tools/cmd/goimports@latest"; \
+	  exit 1; \
+	}
+	cd src/backend && goimports -w .
+
+lint: vet
+	@command -v golangci-lint >/dev/null 2>&1 || { \
+	  echo "golangci-lint is not installed. Install it with:"; \
+	  echo "  grm install golangci/golangci-lint"; \
+	  exit 1; \
+	}
+	cd src/backend && golangci-lint run
+
+check: fmt vet build test lint
+	@echo "==> make check: all green"
+
+standards:
+	curl -sL https://raw.githubusercontent.com/jsnjack/standards/master/AGENTS.universal.md \
+	    -o AGENTS.universal.md
+	curl -sL https://raw.githubusercontent.com/jsnjack/standards/master/AGENTS.go.md \
+	    -o AGENTS.go.md
 
 buildf:
 	cd src/frontend && npm run build
@@ -68,4 +100,4 @@ viewdb:
 	cp wakeci.db view.db
 	bolter -f view.db
 
-.PHONY: runb runf version clean clean_jobs testprod testdev test_go
+.PHONY: runb runf version clean clean_jobs testprod testdev test_go test vet fmt lint check standards buildf build release
