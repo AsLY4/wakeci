@@ -36,6 +36,79 @@ func injectSecrets(str string) string {
 	})
 }
 
+func injectCommandSecrets(command string) (string, []string) {
+	matches := secretsRegex.FindAllStringSubmatchIndex(command, -1)
+	if len(matches) == 0 {
+		return command, nil
+	}
+
+	var transformed strings.Builder
+	transformed.Grow(len(command))
+	env := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	quote := byte(0)
+	last := 0
+	for _, match := range matches {
+		segment := command[last:match[0]]
+		transformed.WriteString(segment)
+		quote = shellQuoteAfter(segment, quote)
+
+		key := command[match[2]:match[3]]
+		envName := "WAKE_SECRET_" + key
+		switch quote {
+		case '\'':
+			transformed.WriteString("'\"${")
+			transformed.WriteString(envName)
+			transformed.WriteString("}\"'")
+		case '"':
+			transformed.WriteString("${" + envName + "}")
+		default:
+			transformed.WriteString("\"${" + envName + "}\"")
+		}
+
+		if _, ok := seen[key]; !ok {
+			value := "<no value>"
+			if configured, ok := Config.secrets[key]; ok {
+				value = configured
+			}
+			env = append(env, envName+"="+value)
+			seen[key] = struct{}{}
+		}
+		last = match[1]
+	}
+	transformed.WriteString(command[last:])
+	return transformed.String(), env
+}
+
+func shellQuoteAfter(segment string, quote byte) byte {
+	escaped := false
+	for i := 0; i < len(segment); i++ {
+		char := segment[i]
+		if quote == '\'' {
+			if char == '\'' {
+				quote = 0
+			}
+			continue
+		}
+		if escaped {
+			escaped = false
+			continue
+		}
+		if char == '\\' {
+			escaped = true
+			continue
+		}
+		if char == quote {
+			quote = 0
+			continue
+		}
+		if quote == 0 && (char == '\'' || char == '"') {
+			quote = char
+		}
+	}
+	return quote
+}
+
 func secretRedactionValues() []string {
 	values := make([]string, 0, len(Config.secrets))
 	seen := make(map[string]struct{}, len(Config.secrets))

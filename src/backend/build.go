@@ -147,7 +147,8 @@ func (b *Build) runTask(task *Task) ItemStatus {
 		Streaming:      true,
 		LineBufferSize: 491520,
 	}
-	taskCmd := cmd.NewCmdOptions(cmdOptions, "bash", "-c", injectSecrets(task.Command))
+	command, secretEnv := injectCommandSecrets(task.Command)
+	taskCmd := cmd.NewCmdOptions(cmdOptions, "bash", "-c", command)
 
 	// Configure task logs
 	file, err := os.Create(b.GetWakespaceDir() + fmt.Sprintf("task_%d.log", task.ID))
@@ -193,6 +194,7 @@ func (b *Build) runTask(task *Task) ItemStatus {
 			taskCmd.Env = append(taskCmd.Env, fmt.Sprintf("%s=%s", key, injectSecrets(value)))
 		}
 	}
+	taskCmd.Env = append(taskCmd.Env, secretEnv...)
 
 	// Checking condition in `when`
 	if task.When != "" {

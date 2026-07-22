@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -10,6 +13,39 @@ func withSecrets(secrets map[string]string, fn func()) {
 	Config = &WakeConfig{secrets: secrets}
 	defer func() { Config = old }()
 	fn()
+}
+
+func TestInjectCommandSecretsDoesNotExecuteSecretContents(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "executed")
+	secret := "value with spaces;$(touch " + marker + ")'$HOME*"
+	tests := []struct {
+		name    string
+		command string
+	}{
+		{name: "unquoted", command: "printf '%s' {{ secrets.VALUE }}"},
+		{name: "double quoted", command: "printf '%s' \"{{ secrets.VALUE }}\""},
+		{name: "single quoted", command: "printf '%s' '{{ secrets.VALUE }}'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withSecrets(map[string]string{"VALUE": secret}, func() {
+				command, env := injectCommandSecrets(tt.command)
+				process := exec.Command("bash", "-c", command)
+				process.Env = append(os.Environ(), env...)
+				output, err := process.Output()
+				if err != nil {
+					t.Fatalf("run transformed command: %v", err)
+				}
+				if string(output) != secret {
+					t.Errorf("output = %q, want %q", output, secret)
+				}
+				if _, err := os.Stat(marker); !os.IsNotExist(err) {
+					t.Fatalf("secret contents executed as shell syntax")
+				}
+			})
+		})
+	}
 }
 
 func TestInjectSecrets(t *testing.T) {
