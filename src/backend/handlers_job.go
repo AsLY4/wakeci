@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 
@@ -12,6 +13,33 @@ import (
 	bolt "go.etcd.io/bbolt"
 	yaml "gopkg.in/yaml.v2"
 )
+
+func jobNameParam(r *http.Request) (string, error) {
+	name := chi.URLParam(r, "name")
+	if r.URL.RawPath != "" {
+		decoded, err := url.PathUnescape(name)
+		if err != nil {
+			return "", fmt.Errorf("decode job name: %w", err)
+		}
+		name = decoded
+	}
+	if !isValidJobName(name) {
+		return "", fmt.Errorf("invalid job name: %s", name)
+	}
+	return name, nil
+}
+
+func requireJobName(w http.ResponseWriter, r *http.Request, logger *slog.Logger) (string, bool) {
+	name, err := jobNameParam(r)
+	if err == nil {
+		return name, true
+	}
+	logger.Warn("invalid job name", "err", err)
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusBadRequest)
+	writeBody(logger, w, []byte(err.Error()))
+	return "", false
+}
 
 // HandleRunJob adds job to queue
 // @Summary      Start a job
@@ -29,15 +57,19 @@ func HandleRunJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		logger = L
 	}
+	name, ok := requireJobName(w, r, logger)
+	if !ok {
+		return
+	}
 
 	err := r.ParseForm()
 	if err != nil {
 		logger.Error("parse form", "err", err)
 	}
 
-	build, err := RunJob(chi.URLParam(r, "name"), r.Form)
+	build, err := RunJob(name, r.Form)
 	if err != nil {
-		logger.Error("run job", "job", chi.URLParam(r, "name"), "err", err)
+		logger.Error("run job", "job", name, "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
 		writeBody(logger, w, []byte(err.Error()))
@@ -59,8 +91,12 @@ func HandleJobGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		logger = L
 	}
+	name, ok := requireJobName(w, r, logger)
+	if !ok {
+		return
+	}
 
-	path := Config.JobDir + chi.URLParam(r, "name") + Config.jobsExt
+	path := Config.JobDir + name + Config.jobsExt
 	data, err := os.ReadFile(path)
 	if err != nil {
 		logger.Error("read job file", "path", path, "err", err)
@@ -98,6 +134,10 @@ func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		logger = L
 	}
+	name, ok := requireJobName(w, r, logger)
+	if !ok {
+		return
+	}
 
 	content := r.FormValue("fileContent")
 	contentB := []byte(content)
@@ -107,7 +147,7 @@ func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 	job := Job{}
 	err := yaml.Unmarshal(contentB, &job)
 	if err != nil {
-		logger.Warn("invalid job yaml", "job", chi.URLParam(r, "name"), "err", err)
+		logger.Warn("invalid job yaml", "job", name, "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
 		writeBody(logger, w, []byte(err.Error()))
@@ -117,7 +157,7 @@ func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 	// Verify provided interval
 	err = job.verifyInterval()
 	if err != nil {
-		logger.Warn("invalid job interval", "job", chi.URLParam(r, "name"), "err", err)
+		logger.Warn("invalid job interval", "job", name, "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Header().Set("Content-Type", "text/plain")
 		writeBody(logger, w, []byte(err.Error()))
@@ -126,7 +166,7 @@ func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 
 	contentB = NormalizeNewlines(contentB)
 
-	path := Config.JobDir + chi.URLParam(r, "name") + Config.jobsExt
+	path := Config.JobDir + name + Config.jobsExt
 
 	err = os.WriteFile(path, contentB, 0644)
 	if err != nil {
@@ -136,7 +176,7 @@ func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 		writeBody(logger, w, []byte(err.Error()))
 		return
 	}
-	logger.Info("job updated", "job", chi.URLParam(r, "name"))
+	logger.Info("job updated", "job", name)
 }
 
 // HandleDeleteJob deletes the job
@@ -154,7 +194,10 @@ func HandleDeleteJob(w http.ResponseWriter, r *http.Request) {
 		logger = L
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireJobName(w, r, logger)
+	if !ok {
+		return
+	}
 	path := Config.JobDir + name + Config.jobsExt
 
 	if _, err := os.Stat(path); err == nil {
@@ -196,7 +239,10 @@ func HandleJobSetActive(w http.ResponseWriter, r *http.Request) {
 		logger = L
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireJobName(w, r, logger)
+	if !ok {
+		return
+	}
 
 	activeStatus := r.FormValue("active")
 

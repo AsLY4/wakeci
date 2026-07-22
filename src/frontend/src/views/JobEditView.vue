@@ -68,7 +68,7 @@ export default {
     methods: {
         fetch() {
             axios
-                .get(`/api/job/${this.name}`)
+                .get(`/api/job/${encodeURIComponent(this.name)}`)
                 .then((response) => {
                     this.job.fileContent = response.data.fileContent || "";
                 })
@@ -79,7 +79,7 @@ export default {
             data.append("name", this.job.name);
             data.append("fileContent", this.job.fileContent);
             axios
-                .post(`/api/job/${this.name}`, data, {
+                .post(`/api/job/${encodeURIComponent(this.name)}`, data, {
                     headers: {
                         "Content-type": "application/x-www-form-urlencoded",
                     },

@@ -54,6 +54,39 @@ describe("Jobs page", function () {
         });
     });
 
+    it("should handle reserved URL characters in a job name", function () {
+        const jobName = `myjob#?% ${new Date().getTime()}`;
+        cy.request({
+            url: "/api/jobs/create",
+            method: "POST",
+            auth: {
+                user: "",
+                pass: "admin",
+            },
+            body: {
+                name: jobName,
+            },
+            form: true,
+        });
+
+        cy.visit("/jobs");
+        cy.login();
+        cy.contains(".row", jobName).find("[data-cy=run-job-button]").click();
+        cy.contains(".row", jobName).find("[data-cy=start-job-confirm]").click();
+        cy.get(".notification-content").should("contain", `${jobName} has been scheduled`);
+
+        cy.contains(".row", jobName).find("[data-cy=edit-job-button]").click();
+        cy.location("pathname").should("eq", `/job/${encodeURIComponent(jobName)}`);
+        cy.get("[data-cy=editor] .cm-content").should("contain", "desc: New job");
+        cy.get("[data-cy=save-button]").click();
+        cy.get(".notification-content").should("contain", "Saved");
+
+        cy.visit("/jobs");
+        cy.contains(".row", jobName).find("[data-cy=delete-job-button]").click();
+        cy.contains(".row", jobName).find("[data-cy=delete-job-confirm]").click();
+        cy.contains(".row", jobName).should("not.exist");
+    });
+
     it("should edit a job", function () {
         cy.visit("/jobs");
         cy.login();

@@ -1,12 +1,51 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/robfig/cron/v3"
 )
+
+func TestJobNameParamDecodesOneSafePathSegment(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		want       string
+		wantStatus int
+	}{
+		{name: "reserved characters", path: "/api/job/job%23%3F%25%20name", want: "job#?% name", wantStatus: http.StatusOK},
+		{name: "literal escape sequence", path: "/api/job/job%2523", want: "job%23", wantStatus: http.StatusOK},
+		{name: "encoded separator", path: "/api/job/job%2Fescape", wantStatus: http.StatusBadRequest},
+	}
+
+	router := chi.NewRouter()
+	router.Get("/api/job/{name}", func(w http.ResponseWriter, r *http.Request) {
+		name, err := jobNameParam(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(name))
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body = %q", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if tt.want != "" && rec.Body.String() != tt.want {
+				t.Errorf("decoded job name = %q, want %q", rec.Body.String(), tt.want)
+			}
+		})
+	}
+}
 
 func TestAddToCronReplacesAllDuplicateEntries(t *testing.T) {
 	oldCron := GlobalCron

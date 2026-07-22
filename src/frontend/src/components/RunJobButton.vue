@@ -88,7 +88,7 @@ export default {
     methods: {
         run(event) {
             this.toggleModal();
-            const url = `/api/job/${this.jobName}/run?` + new URLSearchParams(Array.from(new FormData(this.$refs.form))).toString();
+            const url = `/api/job/${encodeURIComponent(this.jobName)}/run?` + new URLSearchParams(Array.from(new FormData(this.$refs.form))).toString();
             axios
                 .post(url)
                 .then((response) => {
