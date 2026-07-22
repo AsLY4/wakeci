@@ -153,13 +153,11 @@ func (b *Build) runTask(task *Task) ItemStatus {
 	file, err := os.Create(b.GetWakespaceDir() + fmt.Sprintf("task_%d.log", task.ID))
 	bw := bufio.NewWriter(file)
 	defer func() {
-		err = bw.Flush()
-		if err != nil {
-			b.Logger.Error("flush task log", "task", task.ID, "err", err)
+		if flushErr := bw.Flush(); flushErr != nil {
+			b.Logger.Error("flush task log", "task", task.ID, "err", flushErr)
 		}
-		err = file.Close()
-		if err != nil {
-			b.Logger.Error("close task log", "task", task.ID, "err", err)
+		if closeErr := file.Close(); closeErr != nil {
+			b.Logger.Error("close task log", "task", task.ID, "err", closeErr)
 		}
 	}()
 	if err != nil {
@@ -216,16 +214,8 @@ func (b *Build) runTask(task *Task) ItemStatus {
 			)
 			return StatusFailed
 		}
-		condKilled := false
-		condTimer := time.AfterFunc(WHEN_EVAL_TIMEOUT*time.Second, func() {
-			condKilled = true
-			if err := condCmd.Process.Kill(); err != nil {
-				b.Logger.Log(context.Background(), LevelTrace, "kill condition process", "task", task.ID, "err", err)
-			}
-		})
-		condErr = condCmd.Wait()
-		condTimer.Stop()
-		if condKilled {
+		condErr, condTimedOut := b.waitForCondition(condCmd, task.ID, WHEN_EVAL_TIMEOUT*time.Second)
+		if condTimedOut {
 			b.ProcessLogEntry(
 				fmt.Sprintf("> Condition timeouted: %s", condErr.Error()),
 				bw, task.ID, task.startedAt,
@@ -263,16 +253,8 @@ func (b *Build) runTask(task *Task) ItemStatus {
 			)
 			return StatusFailed
 		}
-		condKilled := false
-		condTimer := time.AfterFunc(WHEN_EVAL_TIMEOUT*time.Second, func() {
-			condKilled = true
-			if err := condCmd.Process.Kill(); err != nil {
-				b.Logger.Log(context.Background(), LevelTrace, "kill condition process", "task", task.ID, "err", err)
-			}
-		})
-		condErr = condCmd.Wait()
-		condTimer.Stop()
-		if condKilled {
+		condErr, condTimedOut := b.waitForCondition(condCmd, task.ID, WHEN_EVAL_TIMEOUT*time.Second)
+		if condTimedOut {
 			b.ProcessLogEntry(
 				fmt.Sprintf("> Condition timeouted: %s", condErr.Error()),
 				bw, task.ID, task.startedAt,
@@ -334,9 +316,8 @@ func (b *Build) runTask(task *Task) ItemStatus {
 				// Here we start a timer for SIGTERM to succeed and if it doesn't, SIGKILL is sent
 				abortTimer := time.AfterFunc(ABORT_TIMEOUT*time.Second, func() {
 					b.ProcessLogEntry("> Killing the command...", bw, task.ID, task.startedAt)
-					err = syscall.Kill(taskCmd.Status().PID, syscall.SIGKILL)
-					if err != nil {
-						b.Logger.Error("kill aborted task", "task", task.ID, "err", err)
+					if killErr := syscall.Kill(taskCmd.Status().PID, syscall.SIGKILL); killErr != nil {
+						b.Logger.Error("kill aborted task", "task", task.ID, "err", killErr)
 					}
 				})
 				if err := taskCmd.Stop(); err != nil {
@@ -384,6 +365,25 @@ func (b *Build) runTask(task *Task) ItemStatus {
 	}
 
 	return StatusFinished
+}
+
+func (b *Build) waitForCondition(condCmd *exec.Cmd, taskID int, timeout time.Duration) (error, bool) {
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- condCmd.Wait()
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-waitDone:
+		return err, false
+	case <-timer.C:
+		if err := condCmd.Process.Kill(); err != nil {
+			b.Logger.Log(context.Background(), LevelTrace, "kill condition process", "task", taskID, "err", err)
+		}
+		return <-waitDone, true
+	}
 }
 
 // Generate default set of environmental variables that are injected before
@@ -609,13 +609,14 @@ func (b *Build) GetTasksStatus() []*TaskStatus {
 
 // SetBuildStatus sets the status of the builds
 func (b *Build) SetBuildStatus(status ItemStatus) {
+	// Pending status tasks must finish before any fields for the next status
+	// are changed or broadcast.
+	b.pendingTasksWG.Wait()
 	b.Logger.Info("build status", "status", status)
 	b.Status = status
 	if status == StatusRunning {
 		b.StartedAt = time.Now()
 	}
-	// Wait for pending task to finish before running anything else
-	b.pendingTasksWG.Wait()
 	switch status {
 	case StatusPending:
 		b.BroadcastUpdate()
@@ -636,9 +637,8 @@ func (b *Build) SetBuildStatus(status ItemStatus) {
 				go func() {
 					<-b.timer.C
 					b.Logger.Warn("build timed out", "build", b.ID)
-					err = GlobalQueue.Abort(b.ID, StatusTimedOut)
-					if err != nil {
-						b.Logger.Error("abort timed out build", "build", b.ID, "err", err)
+					if abortErr := GlobalQueue.Abort(b.ID, StatusTimedOut); abortErr != nil {
+						b.Logger.Error("abort timed out build", "build", b.ID, "err", abortErr)
 					}
 				}()
 			}

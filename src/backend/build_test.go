@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -128,5 +129,36 @@ func TestCollectArtifactsRedactsSecrets(t *testing.T) {
 	}
 	if build.BuildArtifacts[0].Size != int64(len(expected)) {
 		t.Errorf("artifact size = %d, want %d", build.BuildArtifacts[0].Size, len(expected))
+	}
+}
+
+func TestWaitForCondition(t *testing.T) {
+	tests := []struct {
+		name         string
+		command      string
+		timeout      time.Duration
+		wantTimedOut bool
+		wantError    bool
+	}{
+		{name: "command completes", command: "true", timeout: time.Second},
+		{name: "command is false", command: "false", timeout: time.Second, wantError: true},
+		{name: "command times out", command: "sleep 1", timeout: 20 * time.Millisecond, wantTimedOut: true, wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			command := exec.Command("bash", "-c", tt.command)
+			if err := command.Start(); err != nil {
+				t.Fatalf("start condition: %v", err)
+			}
+			build := &Build{Logger: L}
+			err, timedOut := build.waitForCondition(command, 1, tt.timeout)
+			if timedOut != tt.wantTimedOut {
+				t.Errorf("timedOut = %t, want %t", timedOut, tt.wantTimedOut)
+			}
+			if (err != nil) != tt.wantError {
+				t.Errorf("error = %v, wantError %t", err, tt.wantError)
+			}
+		})
 	}
 }
