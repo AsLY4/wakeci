@@ -1,4 +1,46 @@
 describe("Feed page", function () {
+    it("should reset websocket failures after logging in again", function () {
+        cy.visit("/", {
+            onBeforeLoad(win) {
+                const browserSetTimeout = win.setTimeout.bind(win);
+                win.setTimeout = (callback, delay, ...args) => browserSetTimeout(callback, delay === 1000 ? 10 : delay, ...args);
+                win.__wsAttempts = 0;
+                win.WebSocket = class FakeWebSocket {
+                    constructor() {
+                        this.listeners = {};
+                        win.__wsAttempts += 1;
+                        if (win.__wsAttempts <= 9) {
+                            browserSetTimeout(() => this.emit("close", {}), 0);
+                        } else {
+                            win.__pendingWebSocket = this;
+                        }
+                    }
+
+                    addEventListener(type, listener) {
+                        this.listeners[type] = listener;
+                    }
+
+                    emit(type, event) {
+                        if (this.listeners[type]) {
+                            this.listeners[type](event);
+                        }
+                    }
+
+                    send() {}
+                };
+            },
+        });
+        cy.login();
+        cy.window().its("__wsAttempts").should("eq", 10);
+
+        cy.get("[data-cy=logout]").click();
+        cy.location("pathname").should("eq", "/login");
+        cy.login();
+        cy.window().then((win) => win.__pendingWebSocket.emit("close", {}));
+
+        cy.location("pathname").should("eq", "/");
+    });
+
     it("should only redirect login to internal paths", function () {
         cy.visit("/login?redirect=" + encodeURIComponent("https://attacker.example/path"));
         cy.login();

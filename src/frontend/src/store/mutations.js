@@ -19,9 +19,11 @@ const mutations = {
         }
     },
     LOG_IN(state) {
+        state.ws.failedAttempts = 0;
         state.auth.isLoggedIn = true;
     },
     LOG_OUT(state) {
+        state.ws.failedAttempts = 0;
         state.auth.isLoggedIn = false;
         if (state.ws.obj.close) {
             state.ws.obj.close();
