@@ -2,7 +2,12 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 func TestByteToInt(t *testing.T) {
@@ -86,5 +91,89 @@ func TestItobOrdering(t *testing.T) {
 	large := Itob(2)
 	if bytes.Compare(small, large) >= 0 {
 		t.Errorf("expected Itob(1) to sort before Itob(2), got %v >= %v", small, large)
+	}
+}
+
+func TestCompactDBClosesCurrentDatabaseOnEarlyError(t *testing.T) {
+	dir := t.TempDir()
+	currentDBFile := filepath.Join(dir, "wakeci.db")
+	db, err := bolt.Open(currentDBFile, 0600, nil)
+	if err != nil {
+		t.Fatalf("create current database: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close current database: %v", err)
+	}
+
+	blockedCompactedPath := filepath.Join(dir, ".compacted.wakeci.db")
+	if err := os.Mkdir(blockedCompactedPath, 0700); err != nil {
+		t.Fatalf("create blocking directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(blockedCompactedPath, "keep"), []byte("keep"), 0600); err != nil {
+		t.Fatalf("make blocking directory non-empty: %v", err)
+	}
+
+	oldConfig := Config
+	Config = &WakeConfig{WorkDir: dir + string(os.PathSeparator)}
+	t.Cleanup(func() { Config = oldConfig })
+
+	if err := CompactDB(); err == nil {
+		t.Fatal("CompactDB() error = nil, want stale compacted path error")
+	}
+
+	reopened, err := bolt.Open(currentDBFile, 0600, &bolt.Options{Timeout: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("current database remained locked after CompactDB error: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("close reopened current database: %v", err)
+	}
+}
+
+func TestCompactDBReplacesDatabaseAndClosesFiles(t *testing.T) {
+	dir := t.TempDir()
+	currentDBFile := filepath.Join(dir, "wakeci.db")
+	db, err := bolt.Open(currentDBFile, 0600, nil)
+	if err != nil {
+		t.Fatalf("create current database: %v", err)
+	}
+	if err := db.Update(func(tx *bolt.Tx) error {
+		bucket, createErr := tx.CreateBucket([]byte("data"))
+		if createErr != nil {
+			return createErr
+		}
+		return bucket.Put([]byte("key"), []byte("value"))
+	}); err != nil {
+		t.Fatalf("populate current database: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close current database: %v", err)
+	}
+
+	oldConfig := Config
+	Config = &WakeConfig{WorkDir: dir + string(os.PathSeparator)}
+	t.Cleanup(func() { Config = oldConfig })
+
+	if err := CompactDB(); err != nil {
+		t.Fatalf("CompactDB: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "wakeci.db.backup")); err != nil {
+		t.Fatalf("stat database backup: %v", err)
+	}
+
+	compacted, err := bolt.Open(currentDBFile, 0600, &bolt.Options{Timeout: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("open compacted database: %v", err)
+	}
+	if err := compacted.View(func(tx *bolt.Tx) error {
+		if got := tx.Bucket([]byte("data")).Get([]byte("key")); !bytes.Equal(got, []byte("value")) {
+			t.Errorf("compacted value = %q, want %q", got, "value")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("read compacted database: %v", err)
+	}
+	if err := compacted.Close(); err != nil {
+		t.Fatalf("close compacted database: %v", err)
 	}
 }

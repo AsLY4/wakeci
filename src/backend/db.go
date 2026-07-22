@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 	"strconv"
 
@@ -52,51 +53,71 @@ func Itob(v int) []byte {
 }
 
 // CompactDB reclaims not used space in db file
-func CompactDB() error {
+func CompactDB() (err error) {
 	currentDBFile := Config.WorkDir + "wakeci.db"
 	newDBFile := Config.WorkDir + ".compacted.wakeci.db"
 	oldDBFile := Config.WorkDir + "wakeci.db.backup"
 	L.Warn("reclaiming unused space in database", "file", currentDBFile)
 	// Open current database
-	oldDB, err := bolt.Open(currentDBFile, 0644, nil)
+	var oldDB *bolt.DB
+	oldDB, err = bolt.Open(currentDBFile, 0644, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("open current database: %w", err)
 	}
+	defer func() {
+		if oldDB == nil {
+			return
+		}
+		if closeErr := oldDB.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close current database: %w", closeErr)
+		}
+	}()
 
 	// Open compacted database
 	err = os.Remove(newDBFile)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return fmt.Errorf("remove stale compacted database: %w", err)
 	}
-	newDB, err := bolt.Open(newDBFile, 0644, nil)
+	var newDB *bolt.DB
+	newDB, err = bolt.Open(newDBFile, 0644, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("open compacted database: %w", err)
 	}
+	defer func() {
+		if newDB == nil {
+			return
+		}
+		if closeErr := newDB.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close compacted database: %w", closeErr)
+		}
+	}()
 
 	// Compact
 	err = bolt.Compact(newDB, oldDB, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("compact database: %w", err)
 	}
 
 	// Report and clean up
 	err = newDB.Close()
 	if err != nil {
-		return err
+		return fmt.Errorf("close compacted database: %w", err)
 	}
+	newDB = nil
 	err = oldDB.Close()
 	if err != nil {
-		return err
+		return fmt.Errorf("close current database: %w", err)
 	}
+	oldDB = nil
 
 	currentStat, err := os.Stat(currentDBFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("stat current database: %w", err)
 	}
 
 	newStat, err := os.Stat(newDBFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("stat compacted database: %w", err)
 	}
 
 	ratio := float64(currentStat.Size()) / float64(newStat.Size())
@@ -107,13 +128,13 @@ func CompactDB() error {
 	// Create a backup copy of the current db
 	err = os.Rename(currentDBFile, oldDBFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("back up current database: %w", err)
 	}
 
 	// Replace db with the compacted version
 	err = os.Rename(newDBFile, currentDBFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("install compacted database: %w", err)
 	}
 
 	return nil
