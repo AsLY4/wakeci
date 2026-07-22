@@ -25,12 +25,13 @@ axios.interceptors.response.use(
     },
     function (error) {
         // Exclude special request to check if user is logged in
-        if (error.request.responseURL.indexOf("/_isLoggedIn") === -1) {
+        const responseURL = error.request?.responseURL || "";
+        if (!responseURL.includes("/_isLoggedIn")) {
             notify({
                 text: escapeHtml((error.response && error.response.data) || error),
                 type: "error",
             });
-            if (error.response.status === 403) {
+            if (error.response?.status === 403) {
                 store.commit("LOG_OUT");
                 router.push("/login");
             }

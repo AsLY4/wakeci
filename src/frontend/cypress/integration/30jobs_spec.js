@@ -1,4 +1,15 @@
 describe("Jobs page", function () {
+    it("should handle API network errors without crashing", function () {
+        cy.intercept("GET", "/api/jobs/", { forceNetworkError: true }).as("jobsNetworkError");
+        cy.visit("/jobs");
+        cy.login();
+        cy.wait("@jobsNetworkError");
+
+        cy.location("pathname").should("eq", "/jobs");
+        cy.get(".notification-content").should("contain", "Network Error");
+        cy.get("[data-cy=jobs-container]").should("contain", "No jobs found");
+    });
+
     it("should create a new job", function () {
         cy.visit("/jobs");
         cy.login();
