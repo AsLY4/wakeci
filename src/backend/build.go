@@ -451,19 +451,53 @@ func (b *Build) CollectArtifacts() {
 				continue
 			}
 			b.Logger.Debug("copying artifact", "path", relPath)
-			c := cmd.NewCmd("cp", f, b.GetArtifactsDir()+relPath)
-			s := <-c.Start()
-			if s.Exit != 0 {
-				b.Logger.Error("copy artifact", "file", f, "exit", s.Exit)
+			artifactSize, err := copyArtifact(f, b.GetArtifactsDir()+relPath, fi.Mode())
+			if err != nil {
+				b.Logger.Error("copy artifact", "file", f, "err", err)
 			} else {
 				b.BuildArtifacts = append(b.BuildArtifacts, &ArtifactInfo{
-					Size:     fi.Size(),
+					Size:     artifactSize,
 					Filename: relPath,
 				})
 				b.Artifacts = append(b.Artifacts, relPath) // Deprecate
 			}
 		}
 	}
+}
+
+func copyArtifact(source string, destination string, mode os.FileMode) (size int64, err error) {
+	src, err := os.Open(source)
+	if err != nil {
+		return 0, fmt.Errorf("open artifact source: %w", err)
+	}
+	defer func() {
+		if closeErr := src.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close artifact source: %w", closeErr)
+		}
+	}()
+
+	dst, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm())
+	if err != nil {
+		return 0, fmt.Errorf("open artifact destination: %w", err)
+	}
+	defer func() {
+		if closeErr := dst.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close artifact destination: %w", closeErr)
+		}
+	}()
+
+	bufferedDst := bufio.NewWriter(dst)
+	if err := copyRedactedSecrets(bufferedDst, src); err != nil {
+		return 0, fmt.Errorf("redact artifact: %w", err)
+	}
+	if err := bufferedDst.Flush(); err != nil {
+		return 0, fmt.Errorf("flush artifact destination: %w", err)
+	}
+	info, err := dst.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("stat artifact destination: %w", err)
+	}
+	return info.Size(), nil
 }
 
 // BroadcastUpdate sends update to all subscribed clients. Contains general

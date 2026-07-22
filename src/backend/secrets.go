@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -33,11 +36,7 @@ func injectSecrets(str string) string {
 	})
 }
 
-// redactSecrets redacts configured secret values from build log text. Output
-// arrives one line at a time, so multiline secrets are redacted by their
-// non-empty line components. Longer values are replaced first to avoid
-// leaking the suffix of a secret that contains another secret as a prefix.
-func redactSecrets(str string) string {
+func secretRedactionValues() []string {
 	values := make([]string, 0, len(Config.secrets))
 	seen := make(map[string]struct{}, len(Config.secrets))
 	for _, secret := range Config.secrets {
@@ -54,8 +53,119 @@ func redactSecrets(str string) string {
 	sort.Slice(values, func(i, j int) bool {
 		return len(values[i]) > len(values[j])
 	})
+	return values
+}
+
+// redactSecrets redacts configured secret values from build log text. Output
+// arrives one line at a time, so multiline secrets are redacted by their
+// non-empty line components. Longer values are replaced first to avoid
+// leaking the suffix of a secret that contains another secret as a prefix.
+func redactSecrets(str string) string {
+	values := secretRedactionValues()
 	for _, value := range values {
 		str = strings.ReplaceAll(str, value, redactedSecret)
 	}
 	return str
+}
+
+// copyRedactedSecrets copies src to dst while replacing exact configured
+// secret values. It retains enough bytes between reads to detect values that
+// cross an I/O-buffer boundary, without loading the whole artifact in memory.
+func copyRedactedSecrets(dst io.Writer, src io.Reader) error {
+	stringValues := secretRedactionValues()
+	if len(stringValues) == 0 {
+		if _, err := io.Copy(dst, src); err != nil {
+			return fmt.Errorf("copy unredacted data: %w", err)
+		}
+		return nil
+	}
+
+	values := make([][]byte, 0, len(stringValues))
+	maxValueLen := 0
+	for _, value := range stringValues {
+		values = append(values, []byte(value))
+		maxValueLen = max(maxValueLen, len(value))
+	}
+
+	readBuffer := make([]byte, 32*1024)
+	pending := make([]byte, 0, len(readBuffer)+maxValueLen)
+	for {
+		n, readErr := src.Read(readBuffer)
+		pending = append(pending, readBuffer[:n]...)
+
+		consumed, err := writeRedactedSecrets(dst, pending, values, maxValueLen, false)
+		if err != nil {
+			return err
+		}
+		pending = append(pending[:0], pending[consumed:]...)
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return fmt.Errorf("read data to redact: %w", readErr)
+		}
+	}
+
+	if _, err := writeRedactedSecrets(dst, pending, values, maxValueLen, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeRedactedSecrets(
+	dst io.Writer,
+	data []byte,
+	values [][]byte,
+	maxValueLen int,
+	final bool,
+) (int, error) {
+	limit := len(data)
+	if !final {
+		limit -= maxValueLen - 1
+		if limit <= 0 {
+			return 0, nil
+		}
+	}
+
+	i := 0
+	literalStart := 0
+	for i < limit {
+		var matchedValue []byte
+		for _, value := range values {
+			if !bytes.HasPrefix(data[i:], value) {
+				continue
+			}
+			matchedValue = value
+			break
+		}
+		if matchedValue == nil {
+			i++
+			continue
+		}
+
+		if err := writeAll(dst, data[literalStart:i]); err != nil {
+			return i, fmt.Errorf("write artifact data: %w", err)
+		}
+		if err := writeAll(dst, []byte(redactedSecret)); err != nil {
+			return i, fmt.Errorf("write redacted value: %w", err)
+		}
+		i += len(matchedValue)
+		literalStart = i
+	}
+	if err := writeAll(dst, data[literalStart:i]); err != nil {
+		return i, fmt.Errorf("write artifact data: %w", err)
+	}
+	return i, nil
+}
+
+func writeAll(dst io.Writer, data []byte) error {
+	written, err := dst.Write(data)
+	if err != nil {
+		return err
+	}
+	if written != len(data) {
+		return io.ErrShortWrite
+	}
+	return nil
 }

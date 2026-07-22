@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -81,5 +82,51 @@ func TestSetBuildStatusWaitsForPendingTasksBeforeRunning(t *testing.T) {
 
 	if elapsed < 250*time.Millisecond {
 		t.Errorf("SetBuildStatus(StatusRunning) returned after %v; expected it to wait for the ~300ms on_pending task first", elapsed)
+	}
+}
+
+func TestCollectArtifactsRedactsSecrets(t *testing.T) {
+	originalConfig := Config
+	t.Cleanup(func() { Config = originalConfig })
+
+	dir := t.TempDir()
+	Config = &WakeConfig{
+		WorkDir: dir + string(os.PathSeparator),
+		secrets: map[string]string{"TOKEN": "top-secret-value"},
+	}
+	build := &Build{
+		ID:     7,
+		Job:    &Job{Artifacts: []string{"result.bin"}},
+		Logger: L,
+	}
+	if err := os.MkdirAll(build.GetWorkspaceDir(), 0755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	if err := os.MkdirAll(build.GetArtifactsDir(), 0755); err != nil {
+		t.Fatalf("create artifacts directory: %v", err)
+	}
+
+	prefix := bytes.Repeat([]byte("x"), 32*1024-5)
+	artifact := append(prefix, []byte("top-secret-value\x00tail")...)
+	source := filepath.Join(build.GetWorkspaceDir(), "result.bin")
+	if err := os.WriteFile(source, artifact, 0644); err != nil {
+		t.Fatalf("write source artifact: %v", err)
+	}
+
+	build.CollectArtifacts()
+
+	result, err := os.ReadFile(filepath.Join(build.GetArtifactsDir(), "result.bin"))
+	if err != nil {
+		t.Fatalf("read collected artifact: %v", err)
+	}
+	expected := append(prefix, []byte(redactedSecret+"\x00tail")...)
+	if !bytes.Equal(result, expected) {
+		t.Errorf("collected artifact was not redacted across the copy buffer boundary")
+	}
+	if len(build.BuildArtifacts) != 1 {
+		t.Fatalf("BuildArtifacts length = %d, want 1", len(build.BuildArtifacts))
+	}
+	if build.BuildArtifacts[0].Size != int64(len(expected)) {
+		t.Errorf("artifact size = %d, want %d", build.BuildArtifacts[0].Size, len(expected))
 	}
 }
