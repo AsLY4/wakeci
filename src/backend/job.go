@@ -296,7 +296,6 @@ func RemoveJobFromCron(name string) {
 		if ok && entryJob.Name == name {
 			GlobalCron.Remove(entry.ID)
 			L.Debug("removing job from cron", "job", name)
-			break
 		}
 	}
 }

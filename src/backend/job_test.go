@@ -4,7 +4,49 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/robfig/cron/v3"
 )
+
+func TestAddToCronReplacesAllDuplicateEntries(t *testing.T) {
+	oldCron := GlobalCron
+	oldConfig := Config
+	GlobalCron = cron.New()
+	Config = &WakeConfig{}
+	t.Cleanup(func() {
+		GlobalCron = oldCron
+		Config = oldConfig
+	})
+
+	interval := "0 0 * * *"
+	for i := 0; i < 2; i++ {
+		if _, err := GlobalCron.AddJob(interval, &Job{Name: "nightly"}); err != nil {
+			t.Fatalf("add duplicate cron entry: %v", err)
+		}
+	}
+	if _, err := GlobalCron.AddJob(interval, &Job{Name: "unrelated"}); err != nil {
+		t.Fatalf("add unrelated cron entry: %v", err)
+	}
+
+	if err := (&Job{Name: "nightly", Interval: interval}).AddToCron(); err != nil {
+		t.Fatalf("AddToCron: %v", err)
+	}
+
+	counts := make(map[string]int)
+	for _, entry := range GlobalCron.Entries() {
+		job, ok := entry.Job.(*Job)
+		if !ok {
+			continue
+		}
+		counts[job.Name]++
+	}
+	if counts["nightly"] != 1 {
+		t.Errorf("nightly cron entries = %d, want 1", counts["nightly"])
+	}
+	if counts["unrelated"] != 1 {
+		t.Errorf("unrelated cron entries = %d, want 1", counts["unrelated"])
+	}
+}
 
 func TestIsValidJobName(t *testing.T) {
 	tests := []struct {
