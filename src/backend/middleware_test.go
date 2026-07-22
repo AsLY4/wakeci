@@ -7,6 +7,23 @@ import (
 	"testing"
 )
 
+func TestCORSMiSetsHeadersBeforeResponseIsWritten(t *testing.T) {
+	Config = &WakeConfig{Hostname: "ci.example.com"}
+	handler := CORSMi(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/feed", nil))
+
+	if got := rec.Header().Get("access-control-allow-origin"); got != "https://ci.example.com" {
+		t.Errorf("access-control-allow-origin = %q, want %q", got, "https://ci.example.com")
+	}
+	if got := rec.Header().Get("access-control-max-age"); got != "86400" {
+		t.Errorf("access-control-max-age = %q, want %q", got, "86400")
+	}
+}
+
 // TestStorageSecurityMiBlocksNetworkAndFormsFromPreviewedContent is a
 // regression test: /storage/build/* serves build artifacts, which can
 // contain task-influenced content, with a relaxed CSP so HTML reports can

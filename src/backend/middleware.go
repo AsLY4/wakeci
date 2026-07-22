@@ -87,14 +87,13 @@ func LogMi(next http.Handler) http.Handler {
 // CORSMi adds CORS headers
 func CORSMi(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Call actual handler
-		next.ServeHTTP(w, r)
 		origin := "*"
 		if Config.Hostname != "" {
 			origin = "https://" + Config.Hostname
 		}
 		w.Header().Set("access-control-allow-origin", origin)
 		w.Header().Set("access-control-max-age", "86400")
+		next.ServeHTTP(w, r)
 	})
 }
 
