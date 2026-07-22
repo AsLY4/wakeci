@@ -324,6 +324,7 @@ concurrency: 1
         });
 
         // Queue 2 jobs
+        let firstBuildID;
         cy.request({
             url: `/api/job/${jobName}/run`,
             method: "POST",
@@ -333,7 +334,10 @@ concurrency: 1
             },
             body: {},
             form: true,
+        }).then((response) => {
+            firstBuildID = response.body;
         });
+        let secondBuildID;
         cy.request({
             url: `/api/job/${jobName}/run`,
             method: "POST",
@@ -343,21 +347,35 @@ concurrency: 1
             },
             body: {},
             form: true,
+        }).then((response) => {
+            secondBuildID = response.body;
         });
         cy.visit("/");
         cy.login();
         cy.get("[data-cy=filter]").click({force:true}).clear().type(jobName);
         cy.get("[data-cy-status]").should("have.length", 2);
-        cy.get("[data-cy-status]").should((items) => {
-            expect(items, "2 items").to.have.length(2);
-            expect(items.eq(0), "first item").to.contain("pending");
-            expect(items.eq(1), "second item").to.contain("running");
-        });
-        cy.get("[data-cy=start-build-button]:not([disabled])").click();
-        cy.get("[data-cy-status]").should((items) => {
-            expect(items, "2 items").to.have.length(2);
-            expect(items.eq(0), "first item").to.contain("running");
-            expect(items.eq(1), "second item").to.contain("running");
+        cy.then(() => {
+            cy.get(`[data-cy-build="${secondBuildID}"] [data-cy-status]`).should(
+                "have.attr",
+                "data-cy-status",
+                "pending",
+            );
+            cy.get(`[data-cy-build="${firstBuildID}"] [data-cy-status]`).should(
+                "have.attr",
+                "data-cy-status",
+                "running",
+            );
+            cy.get(`[data-cy-build="${secondBuildID}"] [data-cy=start-build-button]:not([disabled])`).click();
+            cy.get(`[data-cy-build="${secondBuildID}"] [data-cy-status]`).should(
+                "have.attr",
+                "data-cy-status",
+                "running",
+            );
+            cy.get(`[data-cy-build="${firstBuildID}"] [data-cy-status]`).should(
+                "have.attr",
+                "data-cy-status",
+                "running",
+            );
         });
     });
 });

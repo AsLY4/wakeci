@@ -347,8 +347,8 @@ func RunJob(name string, params url.Values) (*Build, error) {
 	build.mutex.Unlock()
 
 	GlobalQueue.Add(build)
-	GlobalQueue.Take()
 	build.BroadcastUpdate()
+	GlobalQueue.Take()
 	return build, nil
 }
 

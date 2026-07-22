@@ -48,11 +48,10 @@ concurrency: 0
         cy.visit("/");
         cy.login();
         cy.get("[data-cy=filter]").click({force:true}).clear().type(jobName);
-        cy.get("[data-cy-status]").should("have.length", 2);
-        cy.get("[data-cy-status]").should((items) => {
+        cy.get("[data-cy-status]", {timeout: 4000}).should((items) => {
             expect(items, "2 items").to.have.length(2);
-            expect(items.eq(0), "first item").to.contain("running");
-            expect(items.eq(1), "second item").to.contain("running");
+            expect(items.eq(0).attr("data-cy-status"), "first item").to.equal("running");
+            expect(items.eq(1).attr("data-cy-status"), "second item").to.equal("running");
         });
     });
 
@@ -105,11 +104,10 @@ concurrency: 1
         cy.visit("/");
         cy.login();
         cy.get("[data-cy=filter]").click({force:true}).clear().type(jobName);
-        cy.get("[data-cy-status]").should("have.length", 2);
-        cy.get("[data-cy-status]").should((items) => {
+        cy.get("[data-cy-status]", {timeout: 4000}).should((items) => {
             expect(items, "2 items").to.have.length(2);
-            expect(items.eq(0), "first item").to.contain("pending");
-            expect(items.eq(1), "second item").to.contain("running");
+            expect(items.eq(0).attr("data-cy-status"), "first item").to.equal("pending");
+            expect(items.eq(1).attr("data-cy-status"), "second item").to.equal("running");
         });
     });
 });

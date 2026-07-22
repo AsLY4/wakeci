@@ -82,7 +82,7 @@ make build      # frontend (vite) + backend (swag docs + go build), outputs bin/
 make runf       # frontend dev server (npm run serve)
 make runb       # backend, rebuilt and restarted on *.go change (entr)
 make test       # backend unit tests (alias for test_go)
-make check      # fmt, vet, build, test, lint
+make check      # fmt, vet, build, test, lint, isolated production E2E tests
 ```
 
 Smoke test: `./bin/wakeci --config Wakefile.yaml` then open

@@ -6,6 +6,9 @@ const port = process.env.WAKECI_E2E_PORT || 8081;
 
 export default defineConfig({
     video: false,
+    expose: {
+        wakeUrl: `http://localhost:${port}/`,
+    },
     // Several specs poll for a build to reach "running"/"pending" right
     // after triggering it; the default 4000ms is tight enough to flake under
     // system load even though the app itself is behaving correctly.

@@ -93,7 +93,7 @@ lint: vet
 	}
 	cd src/backend && golangci-lint run
 
-check: fmt vet build test lint
+check: fmt vet build test lint testprod
 	@echo "==> make check: all green"
 
 standards:

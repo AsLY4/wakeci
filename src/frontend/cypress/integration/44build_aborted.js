@@ -5,7 +5,7 @@ describe("Build page - Aborted", function () {
 desc: Env test
 tasks:
   - name: Sleepy head
-    run: sleep 5
+    run: sleep 30
 `;
 
         cy.request({
@@ -40,7 +40,7 @@ tasks:
         cy.get("[data-cy-build]")
             .invoke("attr", "data-cy-build")
             .then((val) => {
-                cy.get("[data-cy-status]").should("contain", "running");
+                cy.get("[data-cy-status]").should("have.attr", "data-cy-status", "running");
                 cy.get("[data-cy=abort-build-button]").click();
                 cy.get("[data-cy-status]").should("contain", "aborted");
                 cy.get("[data-cy=open-build-button]").click();
@@ -59,7 +59,7 @@ tasks:
 desc: Env test
 tasks:
   - name: Sleepy head
-    run: sleep 5
+    run: sleep 30
 
 on_aborted:
   - name: Aborted
@@ -98,7 +98,7 @@ on_aborted:
         cy.get("[data-cy-build]")
             .invoke("attr", "data-cy-build")
             .then((val) => {
-                cy.get("[data-cy-status]").should("contain", "running");
+                cy.get("[data-cy-status]").should("have.attr", "data-cy-status", "running");
                 cy.get("[data-cy=open-build-button]").click();
                 cy.url().should("include", "/build/" + val);
                 cy.get("[data-cy=abort-build-button]").click();

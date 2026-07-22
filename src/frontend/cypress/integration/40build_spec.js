@@ -101,7 +101,7 @@ tasks:
                 cy.url().should("include", "/build/" + val);
                 cy.get("[data-cy=reload]").click();
                 cy.get("body").should("contain", `WAKE_JOB_NAME=${jobName}`);
-                cy.get("body").should("contain", `WAKE_URL=${Cypress.config("baseUrl")}/`);
+                cy.get("body").should("contain", `WAKE_URL=${Cypress.expose("wakeUrl")}`);
                 cy.get("body").should("contain", "WAKE_CONFIG_DIR=");
                 cy.get("body").should("contain", "WAKE_BUILD_WORKSPACE=");
                 cy.get("body").should("contain", "WAKE_BUILD_ID=");
