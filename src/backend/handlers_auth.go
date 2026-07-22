@@ -21,6 +21,9 @@ func HandleLogIn(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		logger = L
 	}
+	if rejectRateLimited(w, r, logger) {
+		return
+	}
 
 	// Create and store session token
 	password := r.FormValue("password")
@@ -42,11 +45,15 @@ func HandleLogIn(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Never log the submitted password.
 		logger.Warn("login failed", "err", err)
-		w.WriteHeader(http.StatusForbidden)
+		if recordAuthFailure(w, r, logger) {
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusForbidden)
 		writeBody(logger, w, []byte("Incorrect password"))
 		return
 	}
+	globalAuthAttemptLimiter.success(authClient(r))
 
 	c, err := GlobalSessionStorage.New(r)
 	if err != nil {

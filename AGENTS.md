@@ -36,6 +36,7 @@ src/backend/                 Go server (package main, module "wakeci")
   eta.go                     Rolling average build duration, used for ETA display
   secrets.go                 injectSecrets: redacts/substitutes secret values in commands
   session.go                 Cookie-based session storage (single shared password)
+  auth_limiter.go            Per-client failed-auth limiter and retry/reset response headers
   middleware.go               chi middleware: per-request logger, auth, CORS, security headers
   handlers_*.go              HTTP handlers per resource (auth, jobs, job, build, feed, settings, static, docs)
   wsclient.go, wshub.go      WebSocket hub: pushes build/feed updates to connected browsers
