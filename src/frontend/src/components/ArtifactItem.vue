@@ -9,6 +9,7 @@
             <a
                 :href="indexFile"
                 target="_blank"
+                rel="noopener noreferrer"
                 class="button secondary"
                 data-cy="openIndexFile"
                 ><i>open_in_new</i>index.html</a
@@ -47,6 +48,7 @@
                         <a
                             :href="downloadURL(item.filename)"
                             target="_blank"
+                            rel="noopener noreferrer"
                         >
                             {{ item.filename }}
                         </a>

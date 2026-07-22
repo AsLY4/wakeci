@@ -259,6 +259,7 @@ artifacts:
                 // Make sure Open index.html button is present
                 cy.get("[data-cy=openIndexFile]").should("contain", "index.html");
                 cy.get("[data-cy=openIndexFile]").should("have.attr", "href").and("contain", "bb");
+                cy.get("[data-cy=openIndexFile]").should("have.attr", "rel", "noopener noreferrer");
             });
     });
 

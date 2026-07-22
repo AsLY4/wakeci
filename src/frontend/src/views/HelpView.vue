@@ -51,6 +51,7 @@
                             class="link"
                             href="/docs/api/"
                             target="_blank"
+                            rel="noopener noreferrer"
                             >Open REST API documentation in a new window</a
                         >
                     </h5>

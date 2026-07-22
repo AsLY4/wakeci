@@ -28,6 +28,7 @@
                     class="button circle transparent"
                     :href="getLogURL"
                     target="_blank"
+                    rel="noopener noreferrer"
                 >
                     <i>open_in_new</i>
                     <div class="tooltip left">Raw logs</div>
