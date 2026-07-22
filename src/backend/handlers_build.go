@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +12,8 @@ import (
 	bolt "go.etcd.io/bbolt"
 	"gopkg.in/yaml.v2"
 )
+
+var errBuildNotFound = errors.New("build not found")
 
 // getBuildConfig returns job instance of already executed build
 func getBuildConfig(buildID int) (*Job, error) {
@@ -93,13 +95,13 @@ func HandleGetBuild(w http.ResponseWriter, r *http.Request) {
 		b := tx.Bucket([]byte(HistoryBucket))
 		ud := b.Get(Itob(buildID))
 		if ud == nil {
-			return fmt.Errorf("not found")
+			return errBuildNotFound
 		}
 		return json.Unmarshal(ud, &buildStatusData)
 	})
 	if err != nil {
 		logger.Error("get build status", "build", buildID, "err", err)
-		if err.Error() == "Not found" {
+		if errors.Is(err, errBuildNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 		} else {
 			w.WriteHeader(http.StatusInternalServerError)
