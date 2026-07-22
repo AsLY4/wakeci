@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"embed"
+	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/crypto/bcrypt"
@@ -18,6 +25,8 @@ import (
 
 // TraceLogPath is where --trace writes its log, truncated on every start.
 const TraceLogPath = "/tmp/wakeci.log"
+
+const serverShutdownTimeout = 10 * time.Second
 
 // Version is the version of the application calculated with monova
 var Version string
@@ -45,6 +54,35 @@ var Assets embed.FS
 
 //go:embed docs/swagger.json
 var APIDocs embed.FS
+
+func serveUntilShutdown(
+	ctx context.Context,
+	serve func() error,
+	shutdown func(context.Context) error,
+) error {
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- serve()
+	}()
+
+	select {
+	case err := <-serveErr:
+		if err == nil || errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("serve: %w", err)
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+		defer cancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shut down server: %w", err)
+		}
+		if err := <-serveErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve during shutdown: %w", err)
+		}
+		return nil
+	}
+}
 
 func initApp() func() {
 	configFlag := "Wakefile.yaml"
@@ -171,6 +209,9 @@ func main() {
 
 	GlobalCron = cron.New()
 	GlobalCron.Start()
+	defer func() {
+		<-GlobalCron.Stop().Done()
+	}()
 
 	err = os.MkdirAll(Config.JobDir, os.ModePerm)
 	if err != nil {
@@ -256,44 +297,55 @@ func main() {
 		fatal("create compression adapter", err)
 	}
 
+	handler := compress(router)
+	server := &http.Server{
+		Addr:    ":" + Config.Port,
+		Handler: handler,
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	var auxiliaryServers sync.WaitGroup
+	serveName := "http"
+	serve := server.ListenAndServe
+
 	if Config.Port == "443" {
+		redirectServer := &http.Server{
+			Addr:    ":80",
+			Handler: certManager.HTTPHandler(nil),
+		}
+		auxiliaryServers.Add(1)
 		go func() {
+			defer auxiliaryServers.Done()
 			L.Warn("Listening on :80")
-			err := http.ListenAndServe(":80", certManager.HTTPHandler(nil))
-			if err != nil {
+			if err := serveUntilShutdown(ctx, redirectServer.ListenAndServe, redirectServer.Shutdown); err != nil {
 				L.Error("port 80 redirect listener stopped", "err", err)
 			}
 		}()
 
 		L.Warn("Listening on :443")
-		server := &http.Server{
-			Addr: ":443",
-			TLSConfig: &tls.Config{
-				// https://ssl-config.mozilla.org/#server=golang&version=1.13.6&config=intermediate&guideline=5.4
-				MinVersion:               tls.VersionTLS12,
-				PreferServerCipherSuites: false,
-				CipherSuites: []uint16{
-					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-					tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-				},
-				GetCertificate: certManager.GetCertificate,
+		server.TLSConfig = &tls.Config{
+			// https://ssl-config.mozilla.org/#server=golang&version=1.13.6&config=intermediate&guideline=5.4
+			MinVersion:               tls.VersionTLS12,
+			PreferServerCipherSuites: false,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 			},
-			Handler: compress(router),
+			GetCertificate: certManager.GetCertificate,
 		}
-
-		err = server.ListenAndServeTLS("", "")
-		if err != nil {
-			fatal("serve tls", err)
-		}
+		serveName = "tls"
+		serve = func() error { return server.ListenAndServeTLS("", "") }
 	} else {
 		L.Warn("Listening on :" + Config.Port)
-		err := http.ListenAndServe(":"+Config.Port, compress(router))
-		if err != nil {
-			fatal("serve http", err)
-		}
+	}
+
+	err = serveUntilShutdown(ctx, serve, server.Shutdown)
+	stop()
+	auxiliaryServers.Wait()
+	if err != nil {
+		L.Error("serve "+serveName, "err", err)
 	}
 }
