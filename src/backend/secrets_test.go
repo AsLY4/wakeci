@@ -113,11 +113,46 @@ func TestInjectSecretsCannotDumpAllSecrets(t *testing.T) {
 }
 
 func TestRedactSecrets(t *testing.T) {
-	withSecrets(map[string]string{"API_KEY": "s3cr3t"}, func() {
-		result := redactSecrets("the key is s3cr3t, really")
-		expected := "the key is ***REDACTED***, really"
-		if result != expected {
-			t.Errorf("expected %q, got %q", expected, result)
-		}
-	})
+	tests := []struct {
+		name     string
+		secrets  map[string]string
+		input    string
+		expected string
+	}{
+		{
+			name:     "single-line secret",
+			secrets:  map[string]string{"API_KEY": "s3cr3t"},
+			input:    "the key is s3cr3t, really",
+			expected: "the key is ***REDACTED***, really",
+		},
+		{
+			name:     "empty secret",
+			secrets:  map[string]string{"EMPTY": ""},
+			input:    "ordinary output",
+			expected: "ordinary output",
+		},
+		{
+			name:     "multiline secret output one line at a time",
+			secrets:  map[string]string{"CERT": "first-secret-line\nsecond-secret-line"},
+			input:    "value: second-secret-line",
+			expected: "value: ***REDACTED***",
+		},
+		{
+			name:     "overlapping secrets",
+			secrets:  map[string]string{"SHORT": "token", "LONG": "token-suffix"},
+			input:    "token-suffix",
+			expected: redactedSecret,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withSecrets(tt.secrets, func() {
+				result := redactSecrets(tt.input)
+				if result != tt.expected {
+					t.Errorf("expected %q, got %q", tt.expected, result)
+				}
+			})
+		})
+	}
 }

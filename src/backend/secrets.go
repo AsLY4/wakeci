@@ -2,6 +2,7 @@ package main
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -32,9 +33,28 @@ func injectSecrets(str string) string {
 	})
 }
 
-// redactSecrets is a function that redacts secrets from the string (build logs, etc.)
+// redactSecrets redacts configured secret values from build log text. Output
+// arrives one line at a time, so multiline secrets are redacted by their
+// non-empty line components. Longer values are replaced first to avoid
+// leaking the suffix of a secret that contains another secret as a prefix.
 func redactSecrets(str string) string {
-	for _, value := range Config.secrets {
+	values := make([]string, 0, len(Config.secrets))
+	seen := make(map[string]struct{}, len(Config.secrets))
+	for _, secret := range Config.secrets {
+		for _, value := range strings.FieldsFunc(secret, func(r rune) bool {
+			return r == '\r' || r == '\n'
+		}) {
+			if _, ok := seen[value]; ok {
+				continue
+			}
+			seen[value] = struct{}{}
+			values = append(values, value)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool {
+		return len(values[i]) > len(values[j])
+	})
+	for _, value := range values {
 		str = strings.ReplaceAll(str, value, redactedSecret)
 	}
 	return str
