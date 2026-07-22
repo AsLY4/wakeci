@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -34,9 +35,22 @@ var (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
+	CheckOrigin:     checkWebSocketOrigin,
+}
+
+func checkWebSocketOrigin(r *http.Request) bool {
+	origins := r.Header.Values("Origin")
+	if len(origins) == 0 {
 		return true
-	},
+	}
+	if len(origins) != 1 {
+		return false
+	}
+	origin, err := url.Parse(origins[0])
+	if err != nil || origin.Host == "" {
+		return false
+	}
+	return strings.EqualFold(origin.Host, r.Host)
 }
 
 // Client is a middleman between the websocket connection and the hub.

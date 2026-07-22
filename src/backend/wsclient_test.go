@@ -1,6 +1,37 @@
 package main
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestCheckWebSocketOrigin(t *testing.T) {
+	tests := []struct {
+		name    string
+		origin  []string
+		allowed bool
+	}{
+		{name: "same origin", origin: []string{"https://ci.example.com"}, allowed: true},
+		{name: "case insensitive host", origin: []string{"https://CI.EXAMPLE.COM"}, allowed: true},
+		{name: "cross origin", origin: []string{"https://attacker.example"}},
+		{name: "malformed origin", origin: []string{"://invalid"}},
+		{name: "multiple origins", origin: []string{"https://ci.example.com", "https://attacker.example"}},
+		{name: "non-browser client", allowed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "https://ci.example.com/ws", nil)
+			for _, origin := range tt.origin {
+				req.Header.Add("Origin", origin)
+			}
+			if got := checkWebSocketOrigin(req); got != tt.allowed {
+				t.Errorf("checkWebSocketOrigin() = %t, want %t", got, tt.allowed)
+			}
+		})
+	}
+}
 
 func TestClientIsSubscribed(t *testing.T) {
 	tests := []struct {
