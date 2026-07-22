@@ -55,7 +55,7 @@ func (cl *Cleaner) Clean() {
 			if err != nil {
 				cl.Logger.Error("remove wakespace", "build", id, "err", err)
 			}
-			err = hb.Delete(key)
+			err = c.Delete()
 			if err != nil {
 				cl.Logger.Error("delete build history", "build", id, "err", err)
 			}
