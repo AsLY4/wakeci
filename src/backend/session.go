@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -21,8 +22,8 @@ type SessionStorage struct {
 	mu       deadlock.RWMutex
 }
 
-// New creates new session and returns a cookie
-func (s *SessionStorage) New() (*http.Cookie, error) {
+// New creates new session and returns a cookie.
+func (s *SessionStorage) New(r *http.Request) (*http.Cookie, error) {
 	sessionToken, err := uuid.NewV4()
 	if err != nil {
 		return nil, err
@@ -39,7 +40,8 @@ func (s *SessionStorage) New() (*http.Cookie, error) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	}
-	if Config.Port == "443" {
+	forwardedProto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
+	if Config.Port == "443" || r.TLS != nil || strings.EqualFold(strings.TrimSpace(forwardedProto), "https") {
 		c.Secure = true
 	}
 	return c, nil

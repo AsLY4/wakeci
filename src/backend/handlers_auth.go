@@ -48,7 +48,7 @@ func HandleLogIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := GlobalSessionStorage.New()
+	c, err := GlobalSessionStorage.New(r)
 	if err != nil {
 		logger.Error("create session", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
