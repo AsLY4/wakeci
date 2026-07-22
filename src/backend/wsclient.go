@@ -168,7 +168,7 @@ func (c *Client) IsSubscribed(tag string) (bool, int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for i, v := range c.SubscribedTo {
-		if strings.HasPrefix(tag, v) {
+		if tag == v || (strings.HasSuffix(v, ":") && strings.HasPrefix(tag, v)) {
 			return true, i
 		}
 	}
@@ -177,24 +177,29 @@ func (c *Client) IsSubscribed(tag string) (bool, int) {
 
 // Subscribe subscribes a client to message
 func (c *Client) Subscribe(mt string) {
-	ok, _ := c.IsSubscribed(mt)
-	if !ok {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.SubscribedTo = append(c.SubscribedTo, mt)
-		c.Logger.Debug("subscribed", "to", mt)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, subscription := range c.SubscribedTo {
+		if subscription == mt {
+			return
+		}
 	}
+	c.SubscribedTo = append(c.SubscribedTo, mt)
+	c.Logger.Debug("subscribed", "to", mt)
 }
 
 // Unsubscribe ...
 func (c *Client) Unsubscribe(mt string) {
-	ok, index := c.IsSubscribed(mt)
-	if ok {
-		c.mu.Lock()
-		defer c.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for index, subscription := range c.SubscribedTo {
+		if subscription != mt {
+			continue
+		}
 		c.SubscribedTo[index] = ""
 		c.SubscribedTo = append(c.SubscribedTo[:index], c.SubscribedTo[index+1:]...)
 		c.Logger.Debug("unsubscribed", "from", mt)
+		return
 	}
 }
 
