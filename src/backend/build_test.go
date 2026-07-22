@@ -196,3 +196,47 @@ func TestRunTaskInjectsSecretsIntoConditions(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateBuildUsesPrivatePermissions(t *testing.T) {
+	newTestBuildEnv(t)
+
+	build, err := CreateBuild(&Job{Name: "private-build"}, filepath.Join(Config.JobDir, "private-build.yaml"))
+	if err != nil {
+		t.Fatalf("CreateBuild: %v", err)
+	}
+
+	for _, path := range []string{build.GetWorkspaceDir(), build.GetWakespaceDir(), build.GetArtifactsDir()} {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatalf("stat %s: %v", path, statErr)
+		}
+		if got := info.Mode().Perm(); got&0o077 != 0 {
+			t.Errorf("permissions for %s = %#o, want no group or other access", path, got)
+		}
+	}
+
+	info, err := os.Stat(build.GetBuildConfigFilename())
+	if err != nil {
+		t.Fatalf("stat build plan: %v", err)
+	}
+	if got := info.Mode().Perm(); got != privateBuildFileMode {
+		t.Errorf("build plan permissions = %#o, want %#o", got, privateBuildFileMode)
+	}
+
+	build.Job.Artifacts = []string{"nested/result.txt"}
+	sourceDir := filepath.Join(build.GetWorkspaceDir(), "nested")
+	if err := os.MkdirAll(sourceDir, privateBuildDirMode); err != nil {
+		t.Fatalf("create nested workspace directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "result.txt"), []byte("result"), 0o600); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	build.CollectArtifacts()
+	info, err = os.Stat(filepath.Join(build.GetArtifactsDir(), "nested"))
+	if err != nil {
+		t.Fatalf("stat nested artifact directory: %v", err)
+	}
+	if got := info.Mode().Perm(); got&0o077 != 0 {
+		t.Errorf("nested artifact directory permissions = %#o, want no group or other access", got)
+	}
+}

@@ -61,6 +61,11 @@ const WHEN_EVAL_TIMEOUT = 3
 // ABORT_TIMEOUT is the timeout for aborting the task, s
 const ABORT_TIMEOUT = 5
 
+const (
+	privateBuildDirMode  os.FileMode = 0700
+	privateBuildFileMode os.FileMode = 0600
+)
+
 // Build ...
 type Build struct {
 	ID             int
@@ -449,7 +454,7 @@ func (b *Build) CollectArtifacts() {
 			relDir, _ := filepath.Split(relPath)
 
 			// Recreate folder structure relative to artifacts directory
-			err = os.MkdirAll(b.GetArtifactsDir()+relDir, os.ModePerm)
+			err = os.MkdirAll(b.GetArtifactsDir()+relDir, privateBuildDirMode)
 			if err != nil {
 				b.Logger.Error("create artifacts dir", "dir", b.GetArtifactsDir()+relDir, "err", err)
 				continue
@@ -710,7 +715,7 @@ func CreateBuild(job *Job, jobPath string) (*Build, error) {
 	build.Logger = L.With("build", build.ID)
 
 	// Create workspace
-	err = os.MkdirAll(build.GetWorkspaceDir(), os.ModePerm)
+	err = os.MkdirAll(build.GetWorkspaceDir(), privateBuildDirMode)
 	if err != nil {
 		build.Logger.Error("create workspace", "dir", build.GetWorkspaceDir(), "err", err)
 		return nil, err
@@ -718,7 +723,7 @@ func CreateBuild(job *Job, jobPath string) (*Build, error) {
 	build.Logger.Debug("workspace created", "dir", build.GetWorkspaceDir())
 
 	// Create wakespace
-	err = os.MkdirAll(build.GetWakespaceDir(), os.ModePerm)
+	err = os.MkdirAll(build.GetWakespaceDir(), privateBuildDirMode)
 	if err != nil {
 		build.Logger.Error("create wakespace", "dir", build.GetWakespaceDir(), "err", err)
 		return nil, err
@@ -726,7 +731,7 @@ func CreateBuild(job *Job, jobPath string) (*Build, error) {
 	build.Logger.Debug("wakespace created", "dir", build.GetWakespaceDir())
 
 	// Create artifacts dir
-	err = os.MkdirAll(build.GetArtifactsDir(), os.ModePerm)
+	err = os.MkdirAll(build.GetArtifactsDir(), privateBuildDirMode)
 	if err != nil {
 		build.Logger.Error("create artifacts dir", "dir", build.GetArtifactsDir(), "err", err)
 		return nil, err
@@ -738,7 +743,7 @@ func CreateBuild(job *Job, jobPath string) (*Build, error) {
 		return nil, err
 	}
 
-	err = os.WriteFile(build.GetBuildConfigFilename(), input, os.ModePerm)
+	err = os.WriteFile(build.GetBuildConfigFilename(), input, privateBuildFileMode)
 	if err != nil {
 		build.Logger.Error("write build config", "file", build.GetBuildConfigFilename(), "err", err)
 		return nil, err
