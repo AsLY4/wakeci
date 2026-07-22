@@ -1,4 +1,13 @@
 describe("Feed page", function () {
+    it("should only redirect login to internal paths", function () {
+        cy.visit("/login?redirect=" + encodeURIComponent("https://attacker.example/path"));
+        cy.login();
+        cy.location("pathname").should("eq", "/");
+
+        cy.visit("/login?redirect=" + encodeURIComponent("/jobs"));
+        cy.location("pathname").should("eq", "/jobs");
+    });
+
     it("should open Feed page", function () {
         cy.visit("/");
         cy.login();

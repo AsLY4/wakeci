@@ -42,7 +42,11 @@ export default {
     computed: {
         ...vuex.mapState(["auth", "currentPage"]),
         getRedirectURL: function () {
-            return this.$route.query.redirect || "/";
+            const redirect = this.$route.query.redirect;
+            if (typeof redirect !== "string" || !redirect.startsWith("/") || redirect.startsWith("//") || redirect.includes("\\")) {
+                return "/";
+            }
+            return redirect;
         },
     },
     mounted() {
