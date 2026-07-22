@@ -162,3 +162,37 @@ func TestWaitForCondition(t *testing.T) {
 		})
 	}
 }
+
+func TestRunTaskInjectsSecretsIntoConditions(t *testing.T) {
+	newTestBuildEnv(t)
+	Config.secrets = map[string]string{"FLAG": "enabled"}
+
+	job := &Job{Name: "condition-secrets-test"}
+	build, err := CreateBuild(job, filepath.Join(Config.JobDir, "condition-secrets-test.yaml"))
+	if err != nil {
+		t.Fatalf("CreateBuild: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		task *Task
+	}{
+		{
+			name: "when",
+			task: &Task{ID: 1, When: "{{ secrets.FLAG }} == enabled", Command: "true"},
+		},
+		{
+			name: "if",
+			task: &Task{ID: 2, If: `test "{{ secrets.FLAG }}" = enabled`, Command: "true"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.task.startedAt = time.Now()
+			if status := build.runTask(tt.task); status != StatusFinished {
+				t.Errorf("runTask status = %q, want %q", status, StatusFinished)
+			}
+		})
+	}
+}

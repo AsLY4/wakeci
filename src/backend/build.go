@@ -198,8 +198,9 @@ func (b *Build) runTask(task *Task) ItemStatus {
 
 	// Checking condition in `when`
 	if task.When != "" {
-		condCmd := exec.Command("bash", "-c", fmt.Sprintf("[[ %s ]]", task.When))
-		condCmd.Env = taskCmd.Env
+		condition, conditionSecretEnv := injectCommandSecrets(task.When)
+		condCmd := exec.Command("bash", "-c", fmt.Sprintf("[[ %s ]]", condition))
+		condCmd.Env = append(taskCmd.Env, conditionSecretEnv...)
 		condCmd.Dir = taskCmd.Dir
 		b.ProcessLogEntry("> Checking `when` condition: "+task.When, bw, task.ID, task.startedAt)
 		expandedCondCmd := os.Expand(task.When, getEnvMapper(condCmd.Env))
@@ -237,8 +238,9 @@ func (b *Build) runTask(task *Task) ItemStatus {
 
 	// Checking condition in `if`
 	if task.If != "" {
-		condCmd := exec.Command("bash", "-c", task.If)
-		condCmd.Env = taskCmd.Env
+		condition, conditionSecretEnv := injectCommandSecrets(task.If)
+		condCmd := exec.Command("bash", "-c", condition)
+		condCmd.Env = append(taskCmd.Env, conditionSecretEnv...)
 		condCmd.Dir = taskCmd.Dir
 		b.ProcessLogEntry("> Checking `if` condition: "+task.If, bw, task.ID, task.startedAt)
 		expandedCondCmd := os.Expand(task.If, getEnvMapper(condCmd.Env))
