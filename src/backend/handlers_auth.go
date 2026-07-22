@@ -81,14 +81,11 @@ func HandleLogOut(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	expires, _ := time.Parse(time.RFC3339, "1970-01-01T00:00:00+00:00")
-
 	// Set session cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:    "session",
-		Value:   "delete",
-		Expires: expires,
-		Path:    "/",
-	})
+	cookie := sessionCookie(r)
+	cookie.Value = "delete"
+	cookie.Expires = time.Unix(0, 0)
+	cookie.MaxAge = -1
+	http.SetCookie(w, cookie)
 	w.WriteHeader(http.StatusNoContent)
 }

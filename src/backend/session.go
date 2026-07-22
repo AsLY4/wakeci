@@ -22,6 +22,20 @@ type SessionStorage struct {
 	mu       deadlock.RWMutex
 }
 
+func sessionCookie(r *http.Request) *http.Cookie {
+	cookie := &http.Cookie{
+		Name:     "session",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	forwardedProto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
+	if Config.Port == "443" || r.TLS != nil || strings.EqualFold(strings.TrimSpace(forwardedProto), "https") {
+		cookie.Secure = true
+	}
+	return cookie
+}
+
 // New creates new session and returns a cookie.
 func (s *SessionStorage) New(r *http.Request) (*http.Cookie, error) {
 	sessionToken, err := uuid.NewV4()
@@ -32,18 +46,9 @@ func (s *SessionStorage) New(r *http.Request) (*http.Cookie, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions[sessionToken.String()] = expires
-	c := &http.Cookie{
-		Name:     "session",
-		Value:    sessionToken.String(),
-		Expires:  expires,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-	}
-	forwardedProto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
-	if Config.Port == "443" || r.TLS != nil || strings.EqualFold(strings.TrimSpace(forwardedProto), "https") {
-		c.Secure = true
-	}
+	c := sessionCookie(r)
+	c.Value = sessionToken.String()
+	c.Expires = expires
 	return c, nil
 }
 

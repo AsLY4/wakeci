@@ -108,3 +108,36 @@ func TestAuthenticationRateLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleLogOutClearsCookieWithSessionAttributes(t *testing.T) {
+	newAuthTestEnv(t)
+	originalConfig := Config
+	Config = &WakeConfig{Port: "8081"}
+	t.Cleanup(func() { Config = originalConfig })
+
+	GlobalSessionStorage.sessions["session-token"] = time.Now().Add(time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/auth/logout", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.AddCookie(&http.Cookie{Name: "session", Value: "session-token"})
+	rec := httptest.NewRecorder()
+
+	HandleLogOut(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("Set-Cookie count = %d, want 1", len(cookies))
+	}
+	cookie := cookies[0]
+	if cookie.Path != "/" || !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteStrictMode || cookie.MaxAge != -1 {
+		t.Errorf("logout cookie attributes = Path:%q HttpOnly:%t Secure:%t SameSite:%d MaxAge:%d", cookie.Path, cookie.HttpOnly, cookie.Secure, cookie.SameSite, cookie.MaxAge)
+	}
+	if !cookie.Expires.Before(time.Now()) {
+		t.Errorf("logout cookie expiry = %v, want a past time", cookie.Expires)
+	}
+	if err := GlobalSessionStorage.Verify("session-token"); err == nil {
+		t.Error("session remains valid after logout")
+	}
+}
