@@ -46,6 +46,10 @@ func (cl *Cleaner) Clean() {
 			if id > binary.BigEndian.Uint64(fromB) {
 				continue
 			}
+			if GlobalQueue.Verify(int(id)) {
+				cl.Logger.Debug("preserving active build", "build", id)
+				continue
+			}
 			cl.Logger.Info("cleaning up build", "build", id)
 			err = os.RemoveAll(filepath.Join(Config.WorkDir, "workspace/", fmt.Sprintf("%d", id)))
 			if err != nil {
