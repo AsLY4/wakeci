@@ -555,6 +555,16 @@ func (b *Build) GenerateBuildUpdateData() ([]byte, error) {
 
 // ProcessLogEntry handles log messages from tasks
 func (b *Build) ProcessLogEntry(line string, buffer *bufio.Writer, taskID int, startedAt time.Time) {
+	// Some commands (e.g. progress bars) redraw a single terminal line using
+	// carriage returns instead of newlines. go-cmd only splits stdout/stderr
+	// on newlines, so all of those redraws arrive here as one "line" with
+	// embedded \r. Keep only the text after the last \r, i.e. what a real
+	// terminal would end up displaying, instead of dumping every intermediate
+	// redraw into the log.
+	if idx := strings.LastIndexByte(line, '\r'); idx != -1 {
+		line = line[idx+1:]
+	}
+
 	// Format and clean up the log line:
 	// - add duration and a new line to the log entry
 	// - stip out color info

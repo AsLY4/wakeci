@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +131,39 @@ func TestCollectArtifactsRedactsSecrets(t *testing.T) {
 	}
 	if build.BuildArtifacts[0].Size != int64(len(expected)) {
 		t.Errorf("artifact size = %d, want %d", build.BuildArtifacts[0].Size, len(expected))
+	}
+}
+
+// TestProcessLogEntryCollapsesCarriageReturns is a regression test: commands
+// that redraw a progress bar in place (e.g. `lxc publish`) use \r instead of
+// \n between updates. go-cmd only splits stdout/stderr on \n, so every
+// redraw arrives here as one line with embedded \r. Without collapsing them,
+// the raw line - including every intermediate progress tick - was written to
+// the log and streamed to the browser, which rendered it as a wall of
+// wrapped, misaligned text instead of the single final status a terminal
+// would show.
+func TestProcessLogEntryCollapsesCarriageReturns(t *testing.T) {
+	newTestBuildEnv(t)
+
+	build := &Build{ID: 1, Logger: L}
+	var buf bytes.Buffer
+	bw := bufio.NewWriter(&buf)
+
+	line := "Publishing instance: Image pack: 1MB (1MB/s)\rPublishing instance: Image pack: 2MB (2MB/s)\rPublishing instance: Image pack: 3MB (3MB/s)"
+	build.ProcessLogEntry(line, bw, 1, time.Now())
+	if err := bw.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	got := buf.String()
+	if strings.Contains(got, "\r") {
+		t.Errorf("logged line still contains a carriage return: %q", got)
+	}
+	if strings.Contains(got, "1MB (1MB/s)") || strings.Contains(got, "2MB (2MB/s)") {
+		t.Errorf("logged line kept an intermediate progress update, want only the final one: %q", got)
+	}
+	if !strings.Contains(got, "3MB (3MB/s)") {
+		t.Errorf("logged line is missing the final progress update: %q", got)
 	}
 }
 
