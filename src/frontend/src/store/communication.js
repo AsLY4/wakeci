@@ -37,19 +37,16 @@ const wsMessageHandler = function (app, data) {
 
 export const getWSURL = function () {
     let protocol;
-    let hostname;
     if (location.protocol === "https:") {
         protocol = "wss://";
     } else {
         protocol = "ws://";
     }
 
-    if (import.meta.env.PROD) {
-        hostname = location.host;
-    } else {
-        hostname = "localhost:8081";
-    }
-    return `${protocol}${hostname}/ws`;
+    // Always connect to the page's own origin. In dev that is the vite server,
+    // which proxies /ws to the backend; going straight to localhost:8081 would
+    // send Origin: localhost:8080 and be rejected by checkWebSocketOrigin.
+    return `${protocol}${location.host}/ws`;
 };
 
 export default wsMessageHandler;

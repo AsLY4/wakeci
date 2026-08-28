@@ -30,6 +30,13 @@ export default defineConfig({
                 target: "http://localhost:8081/",
                 changeOrigin: true,
             },
+            // No changeOrigin here: the backend only upgrades a WebSocket when
+            // the Origin header matches the request Host (checkWebSocketOrigin),
+            // so both must stay the vite server.
+            "/ws": {
+                target: "http://localhost:8081/",
+                ws: true,
+            },
         },
     },
 });
