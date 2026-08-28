@@ -141,29 +141,60 @@ func TestCollectArtifactsRedactsSecrets(t *testing.T) {
 // the raw line - including every intermediate progress tick - was written to
 // the log and streamed to the browser, which rendered it as a wall of
 // wrapped, misaligned text instead of the single final status a terminal
-// would show.
+// would show. A \r at the very end is a line terminator rather than a redraw
+// marker, and must not empty the line.
 func TestProcessLogEntryCollapsesCarriageReturns(t *testing.T) {
 	newTestBuildEnv(t)
 
-	build := &Build{ID: 1, Logger: L}
-	var buf bytes.Buffer
-	bw := bufio.NewWriter(&buf)
-
-	line := "Publishing instance: Image pack: 1MB (1MB/s)\rPublishing instance: Image pack: 2MB (2MB/s)\rPublishing instance: Image pack: 3MB (3MB/s)"
-	build.ProcessLogEntry(line, bw, 1, time.Now())
-	if err := bw.Flush(); err != nil {
-		t.Fatalf("flush: %v", err)
+	tests := []struct {
+		name    string
+		line    string
+		want    string
+		notWant []string
+	}{
+		{
+			name:    "keeps only the final redraw",
+			line:    "Publishing instance: Image pack: 1MB (1MB/s)\rPublishing instance: Image pack: 2MB (2MB/s)\rPublishing instance: Image pack: 3MB (3MB/s)",
+			want:    "3MB (3MB/s)",
+			notWant: []string{"1MB (1MB/s)", "2MB (2MB/s)"},
+		},
+		{
+			name: "keeps a line terminated by a carriage return",
+			line: "Test suite 'cmproxy_lint' failed! (code: 1)\r",
+			want: "Test suite 'cmproxy_lint' failed! (code: 1)",
+		},
+		{
+			name:    "keeps the final redraw when it is also terminated",
+			line:    "downloading 50%\rdownloading 100%\r",
+			want:    "downloading 100%",
+			notWant: []string{"downloading 50%"},
+		},
 	}
 
-	got := buf.String()
-	if strings.Contains(got, "\r") {
-		t.Errorf("logged line still contains a carriage return: %q", got)
-	}
-	if strings.Contains(got, "1MB (1MB/s)") || strings.Contains(got, "2MB (2MB/s)") {
-		t.Errorf("logged line kept an intermediate progress update, want only the final one: %q", got)
-	}
-	if !strings.Contains(got, "3MB (3MB/s)") {
-		t.Errorf("logged line is missing the final progress update: %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			build := &Build{ID: 1, Logger: L}
+			var buf bytes.Buffer
+			bw := bufio.NewWriter(&buf)
+
+			build.ProcessLogEntry(tt.line, bw, 1, time.Now())
+			if err := bw.Flush(); err != nil {
+				t.Fatalf("flush: %v", err)
+			}
+
+			got := buf.String()
+			if strings.Contains(got, "\r") {
+				t.Errorf("logged line still contains a carriage return: %q", got)
+			}
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("logged line = %q, want it to contain %q", got, tt.want)
+			}
+			for _, nw := range tt.notWant {
+				if strings.Contains(got, nw) {
+					t.Errorf("logged line kept an intermediate progress update %q: %q", nw, got)
+				}
+			}
+		})
 	}
 }
 

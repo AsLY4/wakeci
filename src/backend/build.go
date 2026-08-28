@@ -561,6 +561,11 @@ func (b *Build) ProcessLogEntry(line string, buffer *bufio.Writer, taskID int, s
 	// embedded \r. Keep only the text after the last \r, i.e. what a real
 	// terminal would end up displaying, instead of dumping every intermediate
 	// redraw into the log.
+	//
+	// A trailing \r terminates the line rather than starting a redraw: under a
+	// PTY the tty translates \n to \r\n, so treating it as a redraw marker
+	// would discard the whole line.
+	line = strings.TrimSuffix(line, "\r")
 	if idx := strings.LastIndexByte(line, '\r'); idx != -1 {
 		line = line[idx+1:]
 	}
