@@ -28,8 +28,10 @@ const TraceLogPath = "/tmp/wakeci.log"
 
 const serverShutdownTimeout = 10 * time.Second
 
-// Version is the version of the application calculated with monova
-var Version string
+// Version is the version of the application calculated with monova. It is
+// injected at build time via -ldflags="-X main.Version=...". The default value
+// is used when the binary is built without setting it (e.g. `go build`).
+var Version = "dev"
 
 // DB is the Bolt db
 var DB *bolt.DB
@@ -89,11 +91,19 @@ func initApp() func() {
 	flag.StringVar(&configFlag, "config", "Wakefile.yaml", "Configuration file location")
 	flag.StringVar(&configFlag, "c", "Wakefile.yaml", "Configuration file location (shorthand)")
 	compactDBFlag := flag.Bool("compactdb", false, "Reclaim space in the database which is no longer used")
+	versionFlag := false
+	flag.BoolVar(&versionFlag, "version", false, "Print the version and exit.")
+	flag.BoolVar(&versionFlag, "V", false, "Print the version and exit (shorthand).")
 	debug := false
 	flag.BoolVar(&debug, "debug", false, "Debug-level logging on stderr.")
 	flag.BoolVar(&debug, "d", false, "Debug-level logging on stderr (shorthand).")
 	trace := flag.Bool("trace", false, "Trace-level logs to "+TraceLogPath+" (truncated each run).")
 	flag.Parse()
+
+	if versionFlag {
+		fmt.Printf("wakeci %s\n", Version)
+		os.Exit(0)
+	}
 
 	level, tracePath := "", ""
 	switch {
