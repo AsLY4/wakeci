@@ -20,7 +20,7 @@ import (
 // @Param        buildHistorySize   formData      string   false  "Set max number of preserved builds"
 // @Success      200      {string}   string
 // @Failure      500      {string}   string
-// @Router       /settings/ [post]
+// @Router       /settings [post]
 func HandleSettingsPost(w http.ResponseWriter, r *http.Request) {
 	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
@@ -97,7 +97,7 @@ func HandleSettingsPost(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Success      200      {object}   SettingsData
 // @Failure      500      {string}   string
-// @Router       /settings/ [get]
+// @Router       /settings [get]
 func HandleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {

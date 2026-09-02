@@ -85,7 +85,7 @@ func HandleRunJob(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Success      200      {object}   JobData
 // @Failure      500      {string}   string
-// @Router       /job/{name}/ [get]
+// @Router       /job/{name} [get]
 func HandleJobGet(w http.ResponseWriter, r *http.Request) {
 	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {
@@ -128,7 +128,7 @@ func HandleJobGet(w http.ResponseWriter, r *http.Request) {
 // @Param        fileContent     formData    string   true   "New content of the job"
 // @Success      200      {string}   string
 // @Failure      400      {string}   string
-// @Router       /job/{name}/ [post]
+// @Router       /job/{name} [post]
 func HandleJobPost(w http.ResponseWriter, r *http.Request) {
 	logger, ok := r.Context().Value(HL).(*slog.Logger)
 	if !ok {

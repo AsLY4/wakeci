@@ -12,7 +12,7 @@ import (
 // DurationWindowLength shows how many duration samples are stored to calculate ETA
 const DurationWindowLength = 5
 
-// RecordBuildDuration saves build duration in JobsBucket
+// RecordBuildDuration saves build duration, in nanoseconds, in JobsBucket
 func RecordBuildDuration(jobName string, duration int) error {
 	err := DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(JobsBucket)
@@ -47,7 +47,9 @@ func RecordBuildDuration(jobName string, duration int) error {
 	return err
 }
 
-// GetJobETA returns ETA for job to complete, s
+// GetJobETA returns the ETA for the job to complete, in nanoseconds. It is
+// the average of the recorded durations, which are time.Duration values, so
+// it carries the same unit as Build.Duration.
 func GetJobETA(jobName string) int {
 	var eta int
 	err := DB.View(func(tx *bolt.Tx) error {

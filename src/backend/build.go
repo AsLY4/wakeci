@@ -81,7 +81,7 @@ type Build struct {
 	BuildArtifacts []*ArtifactInfo
 	StartedAt      time.Time
 	Duration       time.Duration // ns
-	ETA            int           // seconds
+	ETA            int           // ns
 	timer          *time.Timer   // A timer for Job.Timeout
 	mutex          deadlock.Mutex
 }
