@@ -60,10 +60,13 @@ on_finished:
 
 ```
 Usage of ./bin/wakeci:
+  -V	Print the version and exit (shorthand).
   -compactdb
     	Reclaim space in the database which is no longer used
   -config string
     	Configuration file location (default "Wakefile.yaml")
+  -version
+    	Print the version and exit.
 ```
 
 #### Wakefile.yaml format
